@@ -15,7 +15,7 @@ import { listsView, listView, scheduledView, openListPicker } from './listsView.
 import { adminView } from './adminView.js';
 import { termsView, privacyView } from './docs.js';
 import { passkeysSupported, conditionalMediationAvailable, signInWithPasskey, registerPasskey } from './lib/webauthn.js';
-import { initLanguage, t } from './lib/i18n.js';
+import { getLanguage, initLanguage, setLanguage, t } from './lib/i18n.js';
 import { installProfileHover } from './lib/profileHover.js';
 
 let APP_NAME = '3itter';
@@ -760,7 +760,7 @@ function renderAuth() {
       if (mode === 'signup') { body.name = form.name.value.trim() || body.handle; body.acceptTerms = true; if (form.invite) body.invite = form.invite.value.trim(); }
       const { user } = await api(`/auth/${mode}`, { method: 'POST', body });
       conditional?.abort();
-      start(user);
+      await start(user);
       if (mode === 'signup' && passkeysSupported()) {
         setTimeout(() => toast('Sign in faster next time with a passkey.', { action: 'Add passkey', duration: 9000, onAction: addPasskeyNow }), 900);
       }
@@ -780,7 +780,7 @@ function renderAuth() {
     try {
       const { user } = await signInWithPasskey({ conditional: cond, signal: ctl.signal });
       conditional?.abort();
-      start(user);
+      await start(user);
     } catch (ex) {
       if (ex.cancelled) return;
       err.textContent = ex.message;
@@ -810,7 +810,13 @@ function renderPublicDoc() {
 
 // ---------------------------------------------------------------- boot
 
-function start(user) {
+async function start(user) {
+  if (user.settings?.language) {
+    try { await setLanguage(user.settings.language); } catch { /* Keep the browser's last working language. */ }
+  } else {
+    try { ({ user } = await api('/me', { method: 'PATCH', body: { language: getLanguage() } })); }
+    catch { /* Existing accounts adopt their current browser language when the preference is first introduced. */ }
+  }
   state.me = user;
   window.__profileHue = user.hue;
   applyTheme(getTheme(), user.hue);
@@ -825,7 +831,8 @@ function start(user) {
   applyTheme(getTheme());
   try {
     await initLanguage();
-    const [inst, { user }] = await Promise.all([api('/instance').catch(() => null), api('/me')]);
+    const [inst, meResponse] = await Promise.all([api('/instance').catch(() => null), api('/me')]);
+    let user = meResponse.user;
     state.instance = inst;
     if (inst?.name) APP_NAME = inst.name;
     if (user) return start(user);

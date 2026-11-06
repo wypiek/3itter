@@ -288,6 +288,7 @@ addColumn('users', 'domain', 'TEXT');                                // NULL = l
 addColumn('users', 'pinned_post_id', 'INTEGER');
 addColumn('users', 'dm_policy', "TEXT NOT NULL DEFAULT 'everyone'"); // everyone | following | none
 addColumn('users', 'notif_prefs', "TEXT NOT NULL DEFAULT '{}'");
+addColumn('users', 'language', 'TEXT');
 addColumn('users', 'discoverable', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('users', 'fed_counts', 'TEXT');
 addColumn('users', 'remote_avatar_src', 'TEXT');

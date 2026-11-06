@@ -542,9 +542,9 @@ async function languagePage() {
   const root = page('Language', html`
     <section class="card">
       <h2 class="title-large emph">Interface language</h2>
-      <p class="setting-sub">Choose the language used in menus and interface labels. Your choice is saved in this browser.</p>
+      <p class="setting-sub">Choose the language used in menus and interface labels. Your choice is saved to your account and follows you across devices.</p>
       <label class="setting"><span>Language</span><select class="language-select" data-language aria-label="Language">
-        ${languages.map(({ code, name }) => html`<option value="${code}" ${code === getLanguage() ? html`selected` : ''}>${name}</option>`)}
+        ${languages.map(({ code, name }) => html`<option value="${code}" ${code === (state.me.settings.language || getLanguage()) ? html`selected` : ''}>${name}</option>`)}
       </select></label>
     </section>
     <section class="card">
@@ -552,8 +552,14 @@ async function languagePage() {
       <p class="setting-sub">Add a JSON file to <code>public/locales</code> using a language code such as <code>pt-BR.json</code>. Copy <code>en.json</code> to start; the language will appear here automatically.</p>
     </section>`);
   root.querySelector('[data-language]').addEventListener('change', async (event) => {
-    try { await setLanguage(event.target.value); }
-    catch { toast('Could not load that language.'); event.target.value = getLanguage(); }
+    const previous = getLanguage();
+    try {
+      await setLanguage(event.target.value);
+      await saveMe({ language: event.target.value });
+    } catch {
+      try { await setLanguage(previous); } catch { /* Keep the currently loaded catalog if the rollback fetch also fails. */ }
+      toast('Could not save that language.'); event.target.value = previous;
+    }
   });
   return { el: root, title: 'Language' };
 }

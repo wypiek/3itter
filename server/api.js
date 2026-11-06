@@ -1,5 +1,8 @@
 // Social API: auth, account, posts, feeds, users, search, notifications, messages, reports.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { all, get, run, tx } from './db.js';
 import { findBlocked, isReservedHandle, filterConfig, categoriesFor, reasonLabel } from './wordfilter.js';
 import { fail, route } from './http.js';
@@ -15,6 +18,12 @@ import {
 } from './federation.js';
 
 const REMOTE_RE = /^([A-Za-z0-9_]{1,15})@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?::\d{1,5})?)$/;
+const LOCALES_DIR = fileURLToPath(new URL('../public/locales/', import.meta.url));
+
+function supportedLanguage(code) {
+  return typeof code === 'string' && /^[a-z]{2}(?:-[A-Z]{2})?$/.test(code)
+    && fs.existsSync(path.join(LOCALES_DIR, `${code}.json`));
+}
 
 // Resolve a handle param: local, cached remote (refreshed if stale) or fetched from a federated peer.
 async function resolveUser(handle, me) {
@@ -137,6 +146,10 @@ route('PATCH', '/api/me', ({ me, body }) => {
     if (!['everyone', 'following', 'none'].includes(body.dmPolicy)) fail(400, 'Unknown message setting.');
     u.dm_policy = body.dmPolicy;
   }
+  if ('language' in body) {
+    if (!supportedLanguage(body.language)) fail(400, 'Unknown language.');
+    u.language = body.language;
+  }
   if ('discoverable' in body) u.discoverable = body.discoverable ? 1 : 0;
   if ('mutedWords' in body) {
     if (!Array.isArray(body.mutedWords)) fail(400, 'Muted words must be a list.');
@@ -152,10 +165,10 @@ route('PATCH', '/api/me', ({ me, body }) => {
   }
   run(`UPDATE users SET name = :name, bio = :bio, location = :location, website = :website, avatar_shape = :shape, hue = :hue,
          avatar = :avatar, banner = :banner, dm_policy = :dm, discoverable = :disc, notif_prefs = :prefs,
-         pronouns = :pronouns, flags = :flags, muted_words = :words WHERE id = :id`,
+         pronouns = :pronouns, flags = :flags, muted_words = :words, language = :language WHERE id = :id`,
   { name: u.name, bio: u.bio, location: u.location, website: u.website, shape: u.avatar_shape, hue: u.hue,
     avatar: u.avatar, banner: u.banner, dm: u.dm_policy, disc: u.discoverable, prefs: u.notif_prefs,
-    pronouns: u.pronouns, flags: u.flags, words: u.muted_words, id: me.id });
+    pronouns: u.pronouns, flags: u.flags, words: u.muted_words, language: u.language ?? null, id: me.id });
   const fresh = get('SELECT * FROM users WHERE id = :id', { id: me.id });
   if (profileChanged) federateUserUpdate(fresh);
   return { user: selfUser(fresh) };
