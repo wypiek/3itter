@@ -132,6 +132,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     let pathname;
     try { pathname = decodeURIComponent(url.pathname); } catch { return send(res, 400, 'Bad request'); }
+    if (pathname === '/locales' && req.method === 'GET') {
+      const dir = path.join(PUBLIC_DIR, 'locales');
+      const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^[a-z]{2}(?:-[A-Z]{2})?\.json$/.test(f)) : [];
+      const locales = files.map((file) => {
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+          return { code: file.slice(0, -5), name: data._meta?.name || file.slice(0, -5) };
+        } catch { return null; }
+      }).filter(Boolean);
+      return json(res, 200, { locales });
+    }
     if (pathname.startsWith('/uploads/')) return serveFile(res, UPLOAD_DIR, pathname.slice('/uploads/'.length), false);
     const rss = /^\/u\/([A-Za-z0-9_]{1,15})\/rss\.xml$/.exec(pathname);
     if (rss) return rssFeed(res, rss[1]);

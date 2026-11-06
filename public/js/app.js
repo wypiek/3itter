@@ -15,12 +15,15 @@ import { listsView, listView, scheduledView, openListPicker } from './listsView.
 import { adminView } from './adminView.js';
 import { termsView, privacyView } from './docs.js';
 import { passkeysSupported, conditionalMediationAvailable, signInWithPasskey, registerPasskey } from './lib/webauthn.js';
+import { initLanguage, t } from './lib/i18n.js';
+import { installProfileHover } from './lib/profileHover.js';
 
 let APP_NAME = '3itter';
 installMotion();
 installShapes();
 
 const app = document.getElementById('app');
+installProfileHover();
 
 // ---------------------------------------------------------------- shell
 
@@ -32,8 +35,6 @@ const NAV = [
   { path: '/bookmarks', icon: 'bookmark', label: 'Bookmarks' },
   { path: '/lists', icon: 'list_alt', label: 'Lists' },
   { path: 'profile', icon: 'person', label: 'Profile', bar: true },
-  { path: '/settings', icon: 'settings', label: 'Settings' },
-  { path: '/admin', icon: 'shield_person', label: 'Admin', badge: 'reports', staff: true },
 ];
 const isStaff = () => state.me && (state.me.role === 'admin' || state.me.role === 'moderator');
 const navPath = (n) => (n.path === 'profile' ? `/u/${state.me.handle}` : n.path);
@@ -42,6 +43,12 @@ function navItem(n, cls) {
   return html`<a class="${cls}" href="${navPath(n)}" data-nav="${n.path}">
     <span class="ri-icon">${icon(n.icon)}${n.badge ? html`<span class="badge" data-badge="${n.badge}" hidden></span>` : ''}</span>
     <span class="ri-label">${n.label}</span></a>`;
+}
+
+function moreNavItem() {
+  return html`<button class="rail-item rail-more" type="button" data-action="more-menu" aria-label="More" aria-haspopup="menu">
+    <span class="ri-icon">${icon('more_horiz')}${isStaff() ? html`<span class="badge" data-badge="reports" hidden></span>` : ''}</span>
+    <span class="ri-label">More</span></button>`;
 }
 
 function accountChip() {
@@ -58,7 +65,7 @@ function mountShell() {
     <div class="shell">
       <nav class="rail" aria-label="Main">
         <a class="brand" href="/" aria-label="${APP_NAME} home"><span class="brand-mark shape-sunny"></span><span class="brand-name">${APP_NAME}</span></a>
-        <div class="rail-items">${NAV.filter((n) => !n.staff || isStaff()).map((n) => navItem(n, 'rail-item'))}</div>
+        <div class="rail-items">${NAV.map((n) => navItem(n, 'rail-item'))}${moreNavItem()}</div>
         <button class="fab medium extended rail-fab" type="button" data-action="compose" aria-label="New post">${icon('edit')}<span class="rail-fab-label">Post</span></button>
         <div class="rail-spacer"></div>
         <div class="rail-account">${accountChip()}</div>
@@ -82,6 +89,11 @@ function updateNav(pathname) {
     const active = p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(`${p}/`);
     if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+  const more = document.querySelector('[data-action="more-menu"]');
+  if (more) {
+    if (pathname.startsWith('/settings') || pathname.startsWith('/admin')) more.setAttribute('aria-current', 'page');
+    else more.removeAttribute('aria-current');
+  }
 }
 
 const railMedia = matchMedia('(max-width: 1279px)');
@@ -259,7 +271,7 @@ async function render() {
 
 function finish(view) {
   renderAnnouncements();
-  document.title = `${view.title} / ${APP_NAME}`;
+  document.title = `${t(view.title)} / ${APP_NAME}`;
   emit('badges');
   document.body.classList.toggle('is-thread', view.cls === 'is-thread');
 }
@@ -461,10 +473,15 @@ const ACTIONS = {
     { icon: 'list_alt', label: 'Lists', onSelect: () => navigate('/lists') },
     { icon: 'schedule_send', label: 'Scheduled posts', onSelect: () => navigate('/scheduled') },
     { icon: 'settings', label: 'Settings', onSelect: () => navigate('/settings') },
+    ...(isStaff() ? [{ icon: 'shield_person', label: 'Admin', onSelect: () => navigate('/admin') }] : []),
     { icon: 'keyboard', label: 'Keyboard shortcuts', onSelect: () => openShortcuts() },
     '-',
     { icon: 'logout', label: `Log out @${state.me.handle}`, danger: true, onSelect: () => ACTIONS.logout() },
   ]),
+  'more-menu': (t) => openMenu(t, [
+    { icon: 'settings', label: 'Settings', onSelect: () => navigate('/settings') },
+    ...(isStaff() ? [{ icon: 'shield_person', label: 'Admin', onSelect: () => navigate('/admin') }] : []),
+  ], { cls: 'menu more-menu', align: 'start' }),
   like: (t, p) => togglePost(p, 'like'),
   bookmark: (t, p) => togglePost(p, 'bookmark'),
   reply: (t, p) => (p.canReply === false ? toast(p.replyPolicy === 'following' ? 'Only people the author follows can reply.' : 'Only people mentioned in this post can reply.') : openComposer({ replyTo: p })),
@@ -674,7 +691,7 @@ setInterval(() => {
 
 function renderAuth() {
   document.body.dataset.route = 'auth';
-  document.title = `${APP_NAME} — Happening in every shape`;
+  document.title = `${APP_NAME} — ${t('Happening in every shape')}`;
   const inst = state.instance || {};
   const open = inst.registrationsOpen !== false;
   let mode = open ? 'signup' : 'login';
@@ -786,7 +803,7 @@ async function addPasskeyNow() {
 function renderPublicDoc() {
   const view = location.pathname === '/terms' ? termsView({ standalone: true }) : privacyView({ standalone: true });
   document.body.dataset.route = 'doc';
-  document.title = `${view.title} / ${APP_NAME}`;
+  document.title = `${t(view.title)} / ${APP_NAME}`;
   app.replaceChildren(view.el);
   scrollTo(0, 0);
 }
@@ -807,6 +824,7 @@ function start(user) {
 (async () => {
   applyTheme(getTheme());
   try {
+    await initLanguage();
     const [inst, { user }] = await Promise.all([api('/instance').catch(() => null), api('/me')]);
     state.instance = inst;
     if (inst?.name) APP_NAME = inst.name;

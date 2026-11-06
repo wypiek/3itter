@@ -10,12 +10,14 @@ import {
 } from './ui.js';
 import { openEditProfile } from './dialogs.js';
 import { passkeysSupported, registerPasskey } from './lib/webauthn.js';
+import { availableLanguages, getLanguage, setLanguage } from './lib/i18n.js';
 
 const SECTIONS = [
   ['account', 'manage_accounts', 'Your account', 'Password, sessions, download or delete your data'],
   ['privacy', 'shield_lock', 'Privacy & safety', 'Messages, discoverability, blocked and muted accounts'],
   ['notifications', 'notifications', 'Notifications', 'Choose what you get notified about'],
   ['appearance', 'palette', 'Appearance', 'Theme, colour, text size and motion'],
+  ['language', 'language', 'Language', 'Choose the language used in the interface'],
   ['federation', 'hub', 'Federation', 'Your federated address and connected instances'],
   ['about', 'info', 'About this instance', 'Rules, terms, privacy and version'],
 ];
@@ -535,6 +537,27 @@ async function aboutPage() {
   return { el: root, title: 'About' };
 }
 
+async function languagePage() {
+  const languages = await availableLanguages();
+  const root = page('Language', html`
+    <section class="card">
+      <h2 class="title-large emph">Interface language</h2>
+      <p class="setting-sub">Choose the language used in menus and interface labels. Your choice is saved in this browser.</p>
+      <label class="setting"><span>Language</span><select class="language-select" data-language aria-label="Language">
+        ${languages.map(({ code, name }) => html`<option value="${code}" ${code === getLanguage() ? html`selected` : ''}>${name}</option>`)}
+      </select></label>
+    </section>
+    <section class="card">
+      <h2 class="title-large emph">Help translate 3itter</h2>
+      <p class="setting-sub">Add a JSON file to <code>public/locales</code> using a language code such as <code>pt-BR.json</code>. Copy <code>en.json</code> to start; the language will appear here automatically.</p>
+    </section>`);
+  root.querySelector('[data-language]').addEventListener('change', async (event) => {
+    try { await setLanguage(event.target.value); }
+    catch { toast('Could not load that language.'); event.target.value = getLanguage(); }
+  });
+  return { el: root, title: 'Language' };
+}
+
 export async function settingsView({ section } = {}) {
   switch (section) {
     case undefined: case '': return indexPage();
@@ -542,6 +565,7 @@ export async function settingsView({ section } = {}) {
     case 'privacy': return privacyPage();
     case 'notifications': return notificationsPage();
     case 'appearance': return appearancePage();
+    case 'language': return languagePage();
     case 'federation': return federationPage();
     case 'about': return aboutPage();
     default: {
