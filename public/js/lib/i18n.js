@@ -5,6 +5,8 @@ let catalog = {};
 let reverse = {};
 let catalogPatterns = [];
 let reversePatterns = [];
+let previousReverse = {};
+let previousReversePatterns = [];
 const listeners = new Set();
 const USER_CONTENT = '.post-text, .bubble, .profile-bio, .user-row-bio, .profile-hover-bio, .name-text, .post-name, input, textarea, [contenteditable="true"]';
 
@@ -39,9 +41,9 @@ const translateValue = (value, includePrevious = true) => {
   const patterned = applyPattern(value, catalogPatterns);
   if (patterned !== value) return patterned;
   if (!includePrevious) return value;
-  const old = reverse[value];
+  const old = previousReverse[value];
   if (old) return old;
-  return applyPattern(value, reversePatterns);
+  return applyPattern(value, previousReversePatterns);
 };
 
 export function t(key) { return translateValue(key); }
@@ -87,6 +89,8 @@ async function load(code) {
   const response = await fetch(`/locales/${encodeURIComponent(code)}.json`);
   if (!response.ok) throw new Error(`Unable to load language ${code}`);
   const data = await response.json();
+  previousReverse = reverse;
+  previousReversePatterns = reversePatterns;
   language = code;
   catalog = Object.fromEntries(Object.entries(data).filter(([key]) => key !== '_meta'));
   reverse = Object.fromEntries(Object.entries(catalog).map(([key, value]) => [value, key]));
