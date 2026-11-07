@@ -2,6 +2,7 @@
 import { html, raw, esc, el, frag } from './lib/html.js';
 import { state, remember } from './store.js';
 import { FLAG_BY_ID, flagSrc } from './lib/flags.js';
+import { translateNode } from './lib/i18n.js';
 
 // ---------------------------------------------------------------- formatting
 
@@ -107,12 +108,12 @@ export function actionsBar(p, big = false) {
   const n = (x) => (big || !x ? '' : compact(x));
   const reposts = c.reposts + c.quotes;
   return html`<div class="post-actions${big ? ' big' : ''}">
-    <button class="act act-reply" data-action="reply" aria-label="Reply (${c.replies})" ${p.canReply === false ? html`aria-disabled="true" title="${REPLY_NOTE[p.replyPolicy] || 'Replies are limited'}"` : ''}>${icon(p.canReply === false ? 'comments_disabled' : 'chat_bubble')}<span class="count">${n(c.replies)}</span></button>
-    <button class="act act-repost${v.reposted ? ' on' : ''}" data-action="repost-menu" aria-pressed="${String(v.reposted)}" aria-label="Repost (${reposts})">${icon('repeat')}<span class="count">${n(reposts)}</span></button>
-    <button class="act act-like${v.liked ? ' on' : ''}" data-action="like" aria-pressed="${String(v.liked)}" aria-label="Like (${c.likes})">${icon('favorite')}<span class="count">${n(c.likes)}</span></button>
-    ${big ? '' : html`<span class="act act-views" title="${c.views || 0} views" aria-label="${c.views || 0} views">${icon('bar_chart')}<span class="count">${n(c.views)}</span></span>`}
-    <button class="act act-bookmark${v.bookmarked ? ' on' : ''}" data-action="bookmark" aria-pressed="${String(v.bookmarked)}" aria-label="Bookmark">${icon('bookmark')}</button>
-    <button class="act act-share" data-action="share" aria-label="Copy link">${icon('ios_share')}</button>
+    <button class="act act-reply" data-action="reply" data-tooltip="Reply" aria-label="Reply (${c.replies})" ${p.canReply === false ? html`aria-disabled="true" title="${REPLY_NOTE[p.replyPolicy] || 'Replies are limited'}"` : ''}>${icon(p.canReply === false ? 'comments_disabled' : 'chat_bubble')}<span class="count">${n(c.replies)}</span></button>
+    <button class="act act-repost${v.reposted ? ' on' : ''}" data-action="repost-menu" data-tooltip="Repost" aria-pressed="${String(v.reposted)}" aria-label="Repost (${reposts})">${icon('repeat')}<span class="count">${n(reposts)}</span></button>
+    <button class="act act-like${v.liked ? ' on' : ''}" data-action="like" data-tooltip="Like" aria-pressed="${String(v.liked)}" aria-label="Like (${c.likes})">${icon('favorite')}<span class="count">${n(c.likes)}</span></button>
+    ${big ? '' : html`<span class="act act-views" data-tooltip="${c.views || 0} views" aria-label="${c.views || 0} views">${icon('bar_chart')}<span class="count">${n(c.views)}</span></span>`}
+    <button class="act act-bookmark${v.bookmarked ? ' on' : ''}" data-action="bookmark" data-tooltip="Bookmark" aria-pressed="${String(v.bookmarked)}" aria-label="Bookmark">${icon('bookmark')}</button>
+    <button class="act act-share" data-action="share" data-tooltip="Copy link" aria-label="Copy link">${icon('ios_share')}</button>
   </div>`;
 }
 
@@ -391,6 +392,8 @@ export function openPopover(anchor, content, { cls = 'menu', align = 'end' } = {
   pop.append(content);
   if (pop.showPopover) pop.setAttribute('popover', 'manual');
   document.body.append(pop);
+  // Translate before measuring so longer localized menu labels get enough room.
+  translateNode(pop);
   // The Popover API puts menus in the top layer, above modal dialogs (e.g. the emoji picker in the composer).
   try { pop.showPopover?.(); } catch { /* not supported */ }
   const r = anchor.getBoundingClientRect();
@@ -428,7 +431,7 @@ export function openPopover(anchor, content, { cls = 'menu', align = 'end' } = {
 }
 
 // items: [{ icon, label, onSelect, danger }] or '-' for a divider
-export function openMenu(anchor, items) {
+export function openMenu(anchor, items, options = {}) {
   const box = document.createElement('div');
   box.setAttribute('role', 'menu');
   for (const it of items) {
@@ -437,7 +440,7 @@ export function openMenu(anchor, items) {
     b.addEventListener('click', () => { closePopover(); it.onSelect(); });
     box.append(b);
   }
-  const pop = openPopover(anchor, box);
+  const pop = openPopover(anchor, box, options);
   pop.el.querySelector('button')?.focus({ preventScroll: true });
   return pop;
 }

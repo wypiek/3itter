@@ -325,6 +325,7 @@ export function selfUser(u) {
     settings: {
       dmPolicy: u.dm_policy,
       discoverable: !!u.discoverable,
+      language: u.language || null,
       notifPrefs: { ...Object.fromEntries(NOTIF_TYPES.map((t) => [t, true])), ...parseJson(u.notif_prefs, {}) },
       mutedWords: parseJson(u.muted_words, []),
     },
