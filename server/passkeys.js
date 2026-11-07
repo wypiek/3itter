@@ -272,7 +272,7 @@ route('POST', '/api/auth/passkey', ({ req, res, body }) => {
   }
   run('UPDATE passkeys SET sign_count = :sc, last_used = :t, backed_up = :bu WHERE id = :id',
     { sc: auth.signCount, t: Date.now(), bu: auth.bs ? 1 : 0, id: pk.id });
-  createSession(req, res, user.id);
+  createSession(req, res, user.id, { add: body.add === true });
   return { user: selfUser(user) };
 }, { auth: false });
 

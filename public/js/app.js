@@ -6,7 +6,7 @@ import { api } from './lib/api.js';
 import { html, el } from './lib/html.js';
 import { state, postStore, remember, on, emit } from './store.js';
 import {
-  icon, avatar, toast, openMenu, relTime, confirmDialog, lightbox, refreshPost, refreshPoll, postImagesOf, loader, emptyState, closePopover, compact, followBtn, topBar, nameOf,
+  icon, avatar, toast, openMenu, openPopover, postCard, relTime, confirmDialog, lightbox, refreshPost, refreshPoll, postImagesOf, loader, emptyState, closePopover, compact, followBtn, topBar, nameOf,
 } from './ui.js';
 import { openComposer, openEditProfile, openReport, openEditPost, openEditHistory, openShortcuts, openPostList } from './dialogs.js';
 import * as V from './views.js';
@@ -406,6 +406,163 @@ async function hideReply(p, hide) {
   } catch (e) { toast(e.message); }
 }
 
+// Account switcher popover: accounts signed in on this browser, plus shortcuts.
+async function openAccountMenu(anchor) {
+  let accounts = [];
+  try { ({ accounts } = await api('/accounts')); } catch { accounts = [{ ...state.me, active: true }]; }
+  const box = el(html`<div class="account-menu" role="menu">
+    <div class="am-accounts">${accounts.map((a) => html`<button class="am-account${a.active ? ' active' : ''}" type="button" role="menuitem" data-switch="${a.id}" ${a.active ? html`aria-current="true"` : ''}>
+      ${avatar(a, 'sm', { link: false })}<span class="am-names"><span class="am-name">${nameOf(a)}</span><span class="am-handle">@${a.handle}</span></span>
+      ${a.active ? icon('check_circle', 'filled am-check') : ''}</button>`)}</div>
+    ${accounts.length < 5 ? html`<button class="menu-item" type="button" role="menuitem" data-acct="add">${icon('person_add')}<span>Add an existing account</span></button>` : ''}
+    <div class="menu-divider"></div>
+    ${[['person', 'Profile', `/u/${state.me.handle}`], ['bookmark', 'Bookmarks', '/bookmarks'], ['list_alt', 'Lists', '/lists'], ['schedule_send', 'Scheduled posts', '/scheduled'], ['settings', 'Settings', '/settings']]
+    .map(([ic, l, href]) => html`<button class="menu-item" type="button" role="menuitem" data-go="${href}">${icon(ic)}<span>${l}</span></button>`)}
+    <button class="menu-item" type="button" role="menuitem" data-acct="keys">${icon('keyboard')}<span>Keyboard shortcuts</span></button>
+    ${APP_CLIENT ? html`<button class="menu-item" type="button" role="menuitem" data-acct="instance">${icon('swap_horiz')}<span>Switch instance</span></button>` : ''}
+    <div class="menu-divider"></div>
+    <button class="menu-item danger" type="button" role="menuitem" data-acct="logout">${icon('logout')}<span>Log out @${state.me.handle}</span></button>
+    ${accounts.length > 1 ? html`<button class="menu-item danger" type="button" role="menuitem" data-acct="logout-all">${icon('group_remove')}<span>Log out of all ${accounts.length} accounts</span></button>` : ''}
+  </div>`);
+  box.addEventListener('click', async (e) => {
+    const sw = e.target.closest('[data-switch]');
+    const go = e.target.closest('[data-go]');
+    const act = e.target.closest('[data-acct]')?.dataset.acct;
+    if (sw || go || act) closePopover();
+    if (sw && !sw.classList.contains('active')) {
+      try {
+        const { user } = await api('/accounts/switch', { method: 'POST', body: { id: Number(sw.dataset.switch) } });
+        sessionStorage.setItem('3itter-switched', user.handle);
+        location.href = '/';
+      } catch (err) { toast(err.message); }
+    }
+    if (go) navigate(go.dataset.go);
+    if (act === 'add') { history.pushState(null, '', '/'); renderAuth({ add: true }); }
+    if (act === 'keys') openShortcuts();
+    if (act === 'instance') switchInstance();
+    if (act === 'logout') ACTIONS.logout();
+    if (act === 'logout-all') {
+      if (await confirmDialog({ title: 'Log out of every account?', body: `All ${accounts.length} accounts on this browser will be signed out.`, confirm: 'Log out all', danger: true })) ACTIONS.logout(null, null, true);
+    }
+  });
+  openPopover(anchor, box, { align: anchor.closest('.rail') ? 'start' : 'end' });
+}
+// ---------------------------------------------------------------- mobile: navigation drawer
+
+async function openDrawer() {
+  document.querySelector('.drawer-wrap')?.remove();
+  let accounts = [{ ...state.me, active: true }];
+  try { ({ accounts } = await api('/accounts')); } catch { /* keep current */ }
+  const staff = state.me.role === 'admin' || state.me.role === 'moderator';
+  const items = [['home', 'Home', '/'], ['search', 'Explore', '/explore'], ['notifications', 'Notifications', '/notifications'], ['mail', 'Messages', '/messages'],
+    ['bookmark', 'Bookmarks', '/bookmarks'], ['list_alt', 'Lists', '/lists'], ['schedule_send', 'Scheduled posts', '/scheduled'],
+    ['person', 'Profile', `/u/${state.me.handle}`], ['settings', 'Settings', '/settings'], ...(staff ? [['shield_person', 'Admin', '/admin']] : [])];
+  const wrap = el(html`<div class="drawer-wrap" role="dialog" aria-modal="true" aria-label="Navigation">
+    <div class="drawer-scrim" data-close-drawer></div>
+    <nav class="drawer">
+      <div class="drawer-me">
+        ${avatar(state.me, 'lg', { link: false })}
+        <div class="title-medium emph">${nameOf(state.me)}</div><div class="setting-sub">@${state.me.handle}</div>
+        <div class="drawer-counts"><a href="/u/${state.me.handle}/following"><b>${compact(state.me.counts?.following || 0)}</b> Following</a>
+          <a href="/u/${state.me.handle}/followers"><b>${compact(state.me.counts?.followers || 0)}</b> Followers</a></div>
+      </div>
+      ${accounts.length > 1 ? html`<div class="drawer-accounts">${accounts.filter((a) => !a.active).map((a) => html`<button class="drawer-acct" type="button" data-switch="${a.id}" aria-label="Switch to @${a.handle}">
+          ${avatar(a, 'sm', { link: false })}<span>@${a.handle}</span></button>`)}</div>` : ''}
+      <div class="drawer-items">${items.map(([ic, l, href]) => html`<a class="rail-item" href="${href}" ${location.pathname === href ? html`aria-current="page"` : ''}>
+          <span class="ri-icon">${icon(ic)}</span><span class="ri-label">${l}</span></a>`)}</div>
+      <div class="menu-divider"></div>
+      <div class="drawer-items">
+        ${accounts.length < 5 ? html`<button class="rail-item" type="button" data-drawer="add"><span class="ri-icon">${icon('person_add')}</span><span class="ri-label">Add an account</span></button>` : ''}
+        ${APP_CLIENT ? html`<button class="rail-item" type="button" data-drawer="instance"><span class="ri-icon">${icon('swap_horiz')}</span><span class="ri-label">Switch instance</span></button>` : ''}
+        <button class="rail-item danger" type="button" data-drawer="logout"><span class="ri-icon">${icon('logout')}</span><span class="ri-label">Log out</span></button>
+      </div>
+    </nav>
+  </div>`);
+  document.body.append(wrap);
+  document.body.classList.add('drawer-open');
+  const close = () => {
+    wrap.classList.add('closing');
+    document.body.classList.remove('drawer-open');
+    setTimeout(() => wrap.remove(), 220);
+  };
+  wrap.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-close-drawer]') || e.target.closest('a[href]')) { close(); return; }
+    const sw = e.target.closest('[data-switch]');
+    if (sw) {
+      try { const { user } = await api('/accounts/switch', { method: 'POST', body: { id: Number(sw.dataset.switch) } }); sessionStorage.setItem('3itter-switched', user.handle); location.href = '/'; }
+      catch (err) { toast(err.message); }
+    }
+    const act = e.target.closest('[data-drawer]')?.dataset.drawer;
+    if (act) close();
+    if (act === 'add') { history.pushState(null, '', '/'); renderAuth({ add: true }); }
+    if (act === 'instance') switchInstance();
+    if (act === 'logout') ACTIONS.logout();
+  });
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  // Swipe left to close.
+  let x0 = null;
+  const drawer = wrap.querySelector('.drawer');
+  drawer.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  drawer.addEventListener('touchmove', (e) => {
+    if (x0 === null) return;
+    const dx = Math.min(0, e.touches[0].clientX - x0);
+    drawer.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  drawer.addEventListener('touchend', (e) => {
+    const dx = (e.changedTouches[0]?.clientX ?? x0) - x0;
+    drawer.style.transform = '';
+    x0 = null;
+    if (dx < -60) close();
+  });
+  wrap.querySelector('.rail-item')?.focus();
+}
+
+// ---------------------------------------------------------------- mobile: hide bars on scroll, pull to refresh
+
+let lastY = scrollY;
+addEventListener('scroll', () => {
+  const y = scrollY;
+  const down = y > lastY + 6 && y > 120;
+  const up = y < lastY - 6;
+  if (down) document.body.classList.add('bars-hidden');
+  else if (up || y < 60) document.body.classList.remove('bars-hidden');
+  lastY = y;
+}, { passive: true });
+
+(() => {
+  let startY = null;
+  let pull = 0;
+  let ind = null;
+  const can = () => state.me && scrollY <= 0 && ['home', 'notifications', 'explore', 'messages', 'lists', 'bookmarks'].includes(document.body.dataset.route)
+    && !document.querySelector('dialog[open], .drawer-wrap');
+  addEventListener('touchstart', (e) => {
+    if (!can() || e.touches.length !== 1) return;
+    startY = e.touches[0].clientY;
+    pull = 0;
+  }, { passive: true });
+  addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    pull = Math.max(0, e.touches[0].clientY - startY);
+    if (pull < 8) return;
+    if (!ind) { ind = el(html`<div class="ptr" aria-hidden="true"><div class="loader-shape"></div></div>`); document.body.append(ind); }
+    const d = Math.min(pull, 140);
+    ind.style.transform = `translate(-50%, ${d * 0.6}px) rotate(${d * 2}deg)`;
+    ind.style.opacity = String(Math.min(1, d / 80));
+    ind.classList.toggle('ready', d > 80);
+  }, { passive: true });
+  addEventListener('touchend', () => {
+    if (startY === null) return;
+    startY = null;
+    const go = pull > 80;
+    if (ind) {
+      const node = ind;
+      ind = null;
+      if (go) { node.classList.add('spinning'); setTimeout(() => node.remove(), 700); } else node.remove();
+    }
+    if (go) { navigator.vibrate?.(8); resetViews(); }
+  });
+})();
+
 async function togglePin(p, pinned) {
   try {
     await api(`/posts/${p.id}/pin`, { method: pinned ? 'DELETE' : 'POST' });
@@ -463,21 +620,14 @@ const ACTIONS = {
   },
   'vote-multi': (t, p) => vote(p, [...t.closest('.poll').querySelectorAll('.poll-choice[aria-pressed="true"]')].map((b) => Number(b.dataset.choice))),
   follow: (t) => toggleFollow(t),
-  logout: async () => {
-    try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+  logout: async (t, p, all = false) => {
+    try {
+      const r = await api('/auth/logout', { method: 'POST', body: { all } });
+      if (r.switchedTo) sessionStorage.setItem('3itter-switched', r.switchedTo.handle);
+    } catch { /* ignore */ }
     location.href = '/';
   },
-  'account-menu': (t) => openMenu(t, [
-    { icon: 'person', label: 'Profile', onSelect: () => navigate(`/u/${state.me.handle}`) },
-    { icon: 'bookmark', label: 'Bookmarks', onSelect: () => navigate('/bookmarks') },
-    { icon: 'list_alt', label: 'Lists', onSelect: () => navigate('/lists') },
-    { icon: 'schedule_send', label: 'Scheduled posts', onSelect: () => navigate('/scheduled') },
-    { icon: 'settings', label: 'Settings', onSelect: () => navigate('/settings') },
-    ...(isStaff() ? [{ icon: 'shield_person', label: 'Admin', onSelect: () => navigate('/admin') }] : []),
-    { icon: 'keyboard', label: 'Keyboard shortcuts', onSelect: () => openShortcuts() },
-    '-',
-    { icon: 'logout', label: `Log out @${state.me.handle}`, danger: true, onSelect: () => ACTIONS.logout() },
-  ]),
+  'account-menu': (t) => (matchMedia('(max-width: 639px)').matches && !t.closest('.rail') ? openDrawer() : openAccountMenu(t)),
   'more-menu': (t) => openMenu(t, [
     { icon: 'settings', label: 'Settings', onSelect: () => navigate('/settings') },
     ...(isStaff() ? [{ icon: 'shield_person', label: 'Admin', onSelect: () => navigate('/admin') }] : []),
@@ -689,49 +839,115 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- auth screen
 
-function renderAuth() {
+// Running inside the Android app? The app opens instances with ?client=android&launcher=<its start screen>.
+const APP_CLIENT = (() => {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get('client') === 'android') {
+      localStorage.setItem('3itter-client', 'android');
+      if (q.get('launcher')) localStorage.setItem('3itter-launcher', q.get('launcher'));
+      q.delete('client'); q.delete('launcher');
+      history.replaceState(history.state, '', location.pathname + (q.toString() ? `?${q}` : ''));
+    }
+    return localStorage.getItem('3itter-client') === 'android'
+      ? { launcher: localStorage.getItem('3itter-launcher') || 'http://tauri.localhost' } : null;
+  } catch { return null; }
+})();
+const switchInstance = () => { if (APP_CLIENT) location.href = `${APP_CLIENT.launcher}/?switch=1`; };
+
+const FEATURES = [
+  ['auto_awesome', 'Expressive by design', 'Material 3 Expressive: springy motion, morphing shapes, bold type and a palette you pick.'],
+  ['hub', 'Federated', 'Follow people on other 3itter instances with @handle@instance. Every request is signed.'],
+  ['passkey', 'Passkeys built in', 'Sign in with your fingerprint, face or security key. No passwords to leak.'],
+  ['shield_lock', 'Private by default', 'No ads, no tracking scripts. Export or delete your data any time.'],
+  ['list_alt', 'Your timeline, your way', 'Lists, muted words, scheduled posts, polls, threads and content warnings.'],
+  ['diversity_3', 'Safer spaces', 'Pronouns, pride flags, reply controls, blocks, reports and a word filter.'],
+];
+
+// Landing + sign-in. `add`: adding another account to the switcher while signed in.
+function renderAuth({ add = false } = {}) {
   document.body.dataset.route = 'auth';
-  document.title = `${APP_NAME} — ${t('Happening in every shape')}`;
+  document.title = add ? `${t('Add an account')} / ${APP_NAME}` : t(`${APP_NAME} — Happening in every shape`);
   const inst = state.instance || {};
   const open = inst.registrationsOpen !== false;
-  let mode = open ? 'signup' : 'login';
+  let mode = add ? 'login' : open ? 'signup' : 'login';
+  scrollTo(0, 0);
   app.innerHTML = String(html`
-    <div class="auth">
-      <div class="auth-hero">
-        <div class="auth-art" aria-hidden="true">
-          <span class="auth-blob morph"></span>
-          <span class="auth-blob b2 shape-cookie4"></span>
-          <span class="auth-blob b3 shape-clover4"></span>
-          <span class="auth-blob b4 shape-flower"></span>
+    <div class="landing${add ? ' adding' : ''}">
+      <header class="land-top">
+        <a class="brand" href="/"><span class="brand-mark shape-sunny"></span><span class="brand-name">${APP_NAME}</span></a>
+        <div class="land-top-actions">
+          ${APP_CLIENT ? html`<button class="chip instance-chip" type="button" data-switch-instance>${icon('dns', 'sm')}${inst.domain || location.host}${icon('swap_horiz', 'sm')}</button>` : ''}
+          ${add ? html`<button class="btn text" type="button" data-cancel-add>${icon('close', 'sm')}Cancel</button>`
+    : html`<button class="btn tonal" type="button" data-goto="login">Sign in</button>`}
         </div>
-        <p class="auth-eyebrow">${APP_NAME === '3itter' ? '3itter · Material 3 Twitter' : `${APP_NAME} · powered by 3itter`}</p>
-        <h1 class="display-large emph">Happening now, in every&nbsp;shape.</h1>
-        <p class="title-large">${inst.description || `${APP_NAME} is a friendly little social space with springy buttons, morphing shapes and bold type.`}</p>
-        ${inst.stats ? html`<p class="auth-stats">${icon('group', 'sm')}${compact(inst.stats.users)} people · ${compact(inst.stats.posts)} posts${inst.peers?.length ? html` · ${icon('hub', 'sm')}federated with ${inst.peers.length} instance${inst.peers.length === 1 ? '' : 's'}` : ''}</p>` : ''}
-      </div>
-      <div class="auth-card card">
-        <div class="brand"><span class="brand-mark shape-sunny"></span><span class="brand-name">${APP_NAME}</span><span class="auth-domain">${inst.domain || ''}</span></div>
-        <div class="btn-group connected" role="group" aria-label="Sign in or create account">
-          <button class="btn md" type="button" data-mode="signup" aria-pressed="${String(open)}">Create account</button>
-          <button class="btn md" type="button" data-mode="login" aria-pressed="${String(!open)}">Sign in</button>
+      </header>
+
+      <section class="land-hero">
+        <div class="auth-hero">
+          ${add ? html`<p class="auth-eyebrow">Account switcher</p><h1 class="display-medium emph">Add another account</h1>
+            <p class="title-large">Sign in to switch between up to 5 accounts on this device without signing out.</p>` : html`
+          <div class="auth-art" aria-hidden="true">
+            <span class="auth-blob morph"></span>
+            <span class="auth-blob b2 shape-cookie4"></span>
+            <span class="auth-blob b3 shape-clover4"></span>
+            <span class="auth-blob b4 shape-flower"></span>
+          </div>
+          <p class="auth-eyebrow">${APP_NAME === '3itter' ? '3itter · Material 3 Twitter' : `${APP_NAME} · powered by 3itter`}</p>
+          <h1 class="display-large emph">Happening now, in every&nbsp;shape.</h1>
+          <p class="title-large">${inst.description || `${APP_NAME} is a friendly little social space with springy buttons, morphing shapes and bold type.`}</p>
+          <div class="land-cta">
+            ${open ? html`<button class="btn filled md" type="button" data-goto="signup">${icon('person_add')}Create account</button>` : ''}
+            <button class="btn ${open ? 'outlined' : 'filled'} md" type="button" data-goto="login">${icon('login')}Sign in</button>
+          </div>
+          ${inst.stats ? html`<p class="auth-stats">${icon('group', 'sm')}${compact(inst.stats.users)} people · ${compact(inst.stats.posts)} posts${inst.peers?.length ? html` · ${icon('hub', 'sm')}federated with ${inst.peers.length} instance${inst.peers.length === 1 ? '' : 's'}` : ''}</p>` : ''}`}
         </div>
-        ${open ? '' : html`<p class="auth-closed" data-only="signup">${icon('lock', 'sm')}Sign-ups are invite-only right now. Enter your invite code to join.</p>`}
-        <form class="auth-form" novalidate>
-          ${open ? '' : html`<div class="field" data-only="signup"><input name="invite" maxlength="20" placeholder=" " autocomplete="off" autocapitalize="characters" spellcheck="false"><label>Invite code</label></div>`}
-          <div class="field" data-only="signup"><input name="name" maxlength="50" placeholder=" " autocomplete="name"><label>Display name</label></div>
-          <div class="field"><input name="handle" maxlength="16" placeholder=" " autocomplete="username webauthn" autocapitalize="off" spellcheck="false"><label>Handle</label>
-            <div class="supporting" data-only="signup"><span>3–15 letters, numbers or underscores</span></div></div>
-          <div class="field"><input name="password" type="password" placeholder=" " autocomplete="new-password"><label>Password</label>
-            <div class="supporting" data-only="signup"><span>At least 8 characters</span></div></div>
-          <label class="consent" data-only="signup"><input type="checkbox" name="accept" class="checkbox">
-            <span>I’m at least ${inst.minAge || 13} and I agree to the <a class="link" href="/terms" target="_blank">Terms of Service</a> and <a class="link" href="/privacy" target="_blank">Privacy Policy</a>.</span></label>
-          <p class="auth-error" role="alert" hidden></p>
-          <button class="btn filled md block" type="submit">Create account</button>
-          ${passkeysSupported() ? html`<div class="auth-or" data-only="login"><span>or</span></div>
-          <button class="btn tonal md block passkey-btn" type="button" data-only="login" data-passkey>${icon('passkey')}Sign in with a passkey</button>` : ''}
-        </form>
-        <p class="auth-fine"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Sample accounts such as @ada_builds are demo content.</p>
-      </div>
+        <div class="auth-card card" id="auth-card">
+          <div class="brand"><span class="brand-mark shape-sunny"></span><span class="brand-name">${APP_NAME}</span><span class="auth-domain">${inst.domain || ''}</span></div>
+          ${add ? '' : html`<div class="btn-group connected" role="group" aria-label="Sign in or create account">
+            <button class="btn md" type="button" data-mode="signup" aria-pressed="${String(mode === 'signup')}">Create account</button>
+            <button class="btn md" type="button" data-mode="login" aria-pressed="${String(mode === 'login')}">Sign in</button>
+          </div>`}
+          ${open ? '' : html`<p class="auth-closed" data-only="signup">${icon('lock', 'sm')}Sign-ups are invite-only right now. Enter your invite code to join.</p>`}
+          <form class="auth-form" novalidate>
+            ${open ? '' : html`<div class="field" data-only="signup"><input name="invite" maxlength="20" placeholder=" " autocomplete="off" autocapitalize="characters" spellcheck="false"><label>Invite code</label></div>`}
+            <div class="field" data-only="signup"><input name="name" maxlength="50" placeholder=" " autocomplete="name"><label>Display name</label></div>
+            <div class="field"><input name="handle" maxlength="16" placeholder=" " autocomplete="username webauthn" autocapitalize="off" spellcheck="false"><label>Handle</label>
+              <div class="supporting" data-only="signup"><span>3–15 letters, numbers or underscores</span></div></div>
+            <div class="field"><input name="password" type="password" placeholder=" " autocomplete="new-password"><label>Password</label>
+              <div class="supporting" data-only="signup"><span>At least 8 characters</span></div></div>
+            <label class="consent" data-only="signup"><input type="checkbox" name="accept" class="checkbox">
+              <span>I’m at least ${inst.minAge || 13} and I agree to the <a class="link" href="/terms" target="_blank">Terms of Service</a> and <a class="link" href="/privacy" target="_blank">Privacy Policy</a>.</span></label>
+            <p class="auth-error" role="alert" hidden></p>
+            <button class="btn filled md block" type="submit">Create account</button>
+            ${passkeysSupported() ? html`<div class="auth-or" data-only="login"><span>or</span></div>
+            <button class="btn tonal md block passkey-btn" type="button" data-only="login" data-passkey>${icon('passkey')}Sign in with a passkey</button>` : ''}
+            ${add && open ? html`<button class="btn text block" type="button" data-mode-toggle>New here? Create an account instead</button>` : ''}
+          </form>
+          ${APP_CLIENT ? html`<button class="btn text block" type="button" data-switch-instance>${icon('swap_horiz', 'sm')}Use a different instance</button>` : ''}
+        </div>
+      </section>
+
+      ${add ? '' : html`
+      <section class="land-section land-now" hidden>
+        <h2 class="headline-small emph">Happening on ${APP_NAME}</h2>
+        <div class="chips land-trends"></div>
+        <div class="land-posts"></div>
+      </section>
+      <section class="land-section">
+        <h2 class="headline-small emph">Why ${APP_NAME}</h2>
+        <div class="land-features">${FEATURES.map(([ic, t, d], i) => html`<article class="card land-feature">
+          <span class="lf-art shape-${['cookie9', 'flower', 'sunny', 'clover4', 'gem', 'burst'][i]}">${icon(ic)}</span>
+          <h3 class="title-medium emph">${t}</h3><p>${d}</p></article>`)}</div>
+      </section>
+      <section class="land-section land-final card">
+        <span class="brand-mark big shape-sunny" aria-hidden="true"></span>
+        <div><h2 class="headline-small emph">Find your people, in every shape.</h2>
+          <p class="setting-sub">${inst.domain || location.host} · ${inst.stats ? `${compact(inst.stats.users)} people so far` : 'join the conversation'}</p></div>
+        <button class="btn filled md" type="button" data-goto="${open ? 'signup' : 'login'}">${open ? 'Join now' : 'Sign in'}</button>
+      </section>
+      <footer class="land-foot"><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="https://github.com/wypiek/3itter" target="_blank" rel="noopener">Source</a>
+        <span>Powered by 3itter${inst.version ? ` ${inst.version}` : ''} · Material 3 Twitter</span></footer>`}
     </div>`);
 
   const form = app.querySelector('form');
@@ -740,11 +956,25 @@ function renderAuth() {
     mode = m;
     app.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
     app.querySelectorAll('[data-only]').forEach((n) => { n.hidden = n.dataset.only !== m; });
-    form.querySelector('[type=submit]').textContent = m === 'signup' ? 'Create account' : 'Sign in';
+    form.querySelector('[type=submit]').textContent = m === 'signup' ? 'Create account' : add ? 'Sign in and switch' : 'Sign in';
     form.password.autocomplete = m === 'signup' ? 'new-password' : 'current-password';
+    const toggle = app.querySelector('[data-mode-toggle]');
+    if (toggle) toggle.textContent = m === 'signup' ? 'Have an account? Sign in instead' : 'New here? Create an account instead';
     err.hidden = true;
   };
-  app.querySelector('.btn-group').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b && !b.disabled) setMode(b.dataset.mode); });
+  app.querySelector('.landing').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (b) setMode(b.dataset.mode);
+    if (e.target.closest('[data-mode-toggle]')) setMode(mode === 'signup' ? 'login' : 'signup');
+    const go = e.target.closest('[data-goto]');
+    if (go) {
+      setMode(go.dataset.goto);
+      app.querySelector('#auth-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => form.querySelector(go.dataset.goto === 'signup' ? '[name=name]' : '[name=handle]')?.focus({ preventScroll: true }), 350);
+    }
+    if (e.target.closest('[data-switch-instance]')) switchInstance();
+    if (e.target.closest('[data-cancel-add]')) { conditional?.abort(); location.href = '/'; }
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = form.querySelector('[type=submit]');
@@ -756,10 +986,11 @@ function renderAuth() {
     }
     btn.disabled = true;
     try {
-      const body = { handle: form.handle.value.trim().replace(/^@/, ''), password: form.password.value };
+      const body = { handle: form.handle.value.trim().replace(/^@/, ''), password: form.password.value, add };
       if (mode === 'signup') { body.name = form.name.value.trim() || body.handle; body.acceptTerms = true; if (form.invite) body.invite = form.invite.value.trim(); }
       const { user } = await api(`/auth/${mode}`, { method: 'POST', body });
       conditional?.abort();
+      if (add) { location.href = '/'; return; }
       await start(user);
       if (mode === 'signup' && passkeysSupported()) {
         setTimeout(() => toast('Sign in faster next time with a passkey.', { action: 'Add passkey', duration: 9000, onAction: addPasskeyNow }), 900);
@@ -778,18 +1009,30 @@ function renderAuth() {
     const ctl = new AbortController();
     if (cond) conditional = ctl;
     try {
-      const { user } = await signInWithPasskey({ conditional: cond, signal: ctl.signal });
+      const { user } = await signInWithPasskey({ conditional: cond, signal: ctl.signal, add });
       conditional?.abort();
+      if (add) { location.href = '/'; return; }
       await start(user);
     } catch (ex) {
-      if (ex.cancelled) return;
+      // Autofill (conditional) requests fail quietly; only an explicit button press shows errors.
+      if (ex.cancelled || cond) return;
       err.textContent = ex.message;
       err.hidden = false;
     }
   };
   app.querySelector('[data-passkey]')?.addEventListener('click', () => passkeyLogin());
-  conditionalMediationAvailable().then((ok) => { if (ok && !state.me) passkeyLogin({ cond: true }); });
+  conditionalMediationAvailable().then((ok) => { if (ok && (add || !state.me)) passkeyLogin({ cond: true }); });
   setMode(mode);
+
+  if (!add) {
+    api('/public/highlights').then(({ posts, trends }) => {
+      const sec = app.querySelector('.land-now');
+      if (!sec || (!posts.length && !trends.length)) return;
+      sec.querySelector('.land-trends').innerHTML = String(html`${trends.map((t) => html`<span class="chip">#${t.tag}<span class="chip-count">${compact(t.posts)}</span></span>`)}`);
+      sec.querySelector('.land-posts').innerHTML = String(html`<div class="seg feed">${posts.map((p) => postCard(p, { cls: 'preview landing-post' }))}</div>`);
+      sec.hidden = false;
+    }).catch(() => {});
+  }
 }
 
 async function addPasskeyNow() {
@@ -825,6 +1068,10 @@ async function start(user) {
   history.replaceState({ key: newKey(), depth: 0 }, '', wantsCompose ? '/' : location.pathname + location.search);
   render();
   if (wantsCompose) setTimeout(() => openComposer(), 300);
+  try {
+    const switched = sessionStorage.getItem('3itter-switched');
+    if (switched) { sessionStorage.removeItem('3itter-switched'); setTimeout(() => toast(`Switched to @${switched}`), 400); }
+  } catch { /* ignore */ }
 }
 
 (async () => {

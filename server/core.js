@@ -91,9 +91,49 @@ export function validatePassword(pw) {
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
 export const sessionId = (tokenHash) => tokenHash.slice(0, 16);
 
-function cookie(token, maxAgeSec) {
+function cookie(token, maxAgeSec, name = COOKIE) {
   const secure = process.env.SECURE_COOKIES === '1' || PUBLIC_URL.startsWith('https://');
-  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
+  return `${name}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
+}
+
+// Account switcher: the active session lives in COOKIE, other signed-in accounts in COOKIE_more
+// (dot-separated tokens). Both are HttpOnly, so page scripts never see any token.
+const MORE = `${COOKIE}_more`;
+export const MAX_ACCOUNTS = 5;
+function sessionTokens(req) {
+  const c = parseCookies(req.headers.cookie);
+  const others = String(c[MORE] || '').split('.').filter((t) => /^[A-Za-z0-9_-]{20,64}$/.test(t));
+  return { active: c[COOKIE] || null, others };
+}
+function writeTokens(res, active, others) {
+  const uniq = [...new Set(others.filter((t) => t && t !== active))].slice(0, MAX_ACCOUNTS - 1);
+  res.setHeader('Set-Cookie', [
+    cookie(active || '', active ? SESSION_MS / 1000 : 0),
+    cookie(uniq.join('.'), uniq.length ? SESSION_MS / 1000 : 0, MORE),
+  ]);
+}
+const tokenUser = (token) => get(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+                                  WHERE s.token = :h AND s.expires_at > :now AND u.suspended = 0 AND u.deleted_at IS NULL AND u.domain IS NULL`,
+{ h: hashToken(token), now: Date.now() });
+
+// Signed-in accounts in this browser: [{ token, user, active }]. Invalid tokens are dropped.
+export function browserAccounts(req) {
+  const { active, others } = sessionTokens(req);
+  const out = [];
+  for (const t of [active, ...others]) {
+    if (!t || out.some((a) => a.token === t)) continue;
+    const user = tokenUser(t);
+    if (user && !out.some((a) => a.user.id === user.id)) out.push({ token: t, user, active: t === active });
+  }
+  return out;
+}
+
+export function switchAccount(req, res, userId) {
+  const accounts = browserAccounts(req);
+  const target = accounts.find((a) => a.user.id === userId);
+  if (!target) return null;
+  writeTokens(res, target.token, accounts.filter((a) => a !== target).map((a) => a.token));
+  return target.user;
 }
 
 export function clientIp(req) {
@@ -103,19 +143,28 @@ export function clientIp(req) {
   return fwd || req.socket.remoteAddress || '';
 }
 
-export function createSession(req, res, userId) {
+// `add`: keep the accounts already signed in on this browser (account switcher) instead of replacing them.
+export function createSession(req, res, userId, { add = false } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
   run(`INSERT INTO sessions (token, user_id, created_at, expires_at, user_agent, ip, last_used)
        VALUES (:token, :uid, :now, :exp, :ua, :ip, :now)`,
   { token: hashToken(token), uid: userId, now, exp: now + SESSION_MS, ua: String(req.headers['user-agent'] || '').slice(0, 300), ip: clientIp(req) });
-  res.setHeader('Set-Cookie', cookie(token, SESSION_MS / 1000));
+  // Signing in to an account that's already in the switcher replaces that entry.
+  const keep = add ? browserAccounts(req).filter((a) => a.user.id !== userId).map((a) => a.token) : [];
+  if (add && keep.length >= MAX_ACCOUNTS) fail(400, `You can be signed in to up to ${MAX_ACCOUNTS} accounts at once.`);
+  writeTokens(res, token, keep);
 }
 
-export function clearSession(req, res) {
-  const token = parseCookies(req.headers.cookie)[COOKIE];
-  if (token) run('DELETE FROM sessions WHERE token = :t', { t: hashToken(token) });
-  res.setHeader('Set-Cookie', cookie('', 0));
+// Sign out the active account. Returns the account that becomes active next (or null).
+// `all` signs out every account on this browser.
+export function clearSession(req, res, { all = false } = {}) {
+  const accounts = browserAccounts(req);
+  const { active, others } = sessionTokens(req);
+  for (const t of all ? [active, ...others] : [active]) if (t) run('DELETE FROM sessions WHERE token = :t', { t: hashToken(t) });
+  const rest = all ? [] : accounts.filter((a) => !a.active);
+  writeTokens(res, rest[0]?.token || null, rest.slice(1).map((a) => a.token));
+  return rest[0]?.user || null;
 }
 
 export function currentSession(req) {

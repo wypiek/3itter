@@ -1,0 +1,23 @@
+[package]
+name = "itter-app"
+version = "1.0.0"
+description = "3itter Android client"
+edition = "2021"
+license = "MIT"
+
+[lib]
+# The mobile entry point lives in the library; desktop builds use src/main.rs.
+name = "itter_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -291,3 +291,32 @@ route('DELETE', '/api/admin/invites/:code', ({ me, params }) => {
   return { ok: true };
 }, ADMIN);
 
+
+// ---------------------------------------------------------------- public landing-page highlights
+
+let highlightsCache = { at: 0, data: null };
+route('GET', '/api/public/highlights', () => {
+  if (Date.now() - highlightsCache.at < 60_000 && highlightsCache.data) return highlightsCache.data;
+  const since = Date.now() - 14 * DAY;
+  // Popular recent local posts that are safe to show to signed-out visitors.
+  const ids = all(`SELECT p.id FROM posts p JOIN users u ON u.id = p.author_id
+                   WHERE p.deleted = 0 AND p.reply_to IS NULL AND p.cw = '' AND p.sensitive = 0 AND p.created_at > :since
+                     AND u.domain IS NULL AND u.suspended = 0 AND u.deleted_at IS NULL AND u.password_hash != '!'
+                   ORDER BY ((SELECT COUNT(*) FROM likes WHERE post_id = p.id) + 2 * (SELECT COUNT(*) FROM reposts WHERE post_id = p.id) + p.views / 10.0) DESC,
+                            p.created_at DESC LIMIT 3`, { since }).map((r) => r.id);
+  const fallback = ids.length ? ids : all(`SELECT p.id FROM posts p JOIN users u ON u.id = p.author_id
+                   WHERE p.deleted = 0 AND p.reply_to IS NULL AND p.cw = '' AND p.sensitive = 0 AND u.suspended = 0 AND u.deleted_at IS NULL
+                   ORDER BY p.created_at DESC LIMIT 3`).map((r) => r.id);
+  const counts = new Map();
+  for (const { text } of all('SELECT text FROM posts WHERE deleted = 0 AND created_at > :since ORDER BY created_at DESC LIMIT 2000', { since })) {
+    for (const m of new Set([...text.matchAll(/(^|[^\p{L}\p{N}_&])#([\p{L}\p{N}_]{1,50})/gu)].map((x) => x[2].toLowerCase()))) {
+      if (/\p{L}/u.test(m)) counts.set(m, (counts.get(m) || 0) + 1);
+    }
+  }
+  const data = {
+    posts: loadPosts(fallback, 0, { words: [] }).filter((p) => !p.deleted).map((p) => ({ ...p, viewer: { liked: false, reposted: false, bookmarked: false } })),
+    trends: [...counts].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([tag, posts]) => ({ tag, posts })),
+  };
+  highlightsCache = { at: Date.now(), data };
+  return data;
+}, { auth: false });

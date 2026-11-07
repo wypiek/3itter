@@ -1,0 +1,15 @@
+{
+  "name": "3itter-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "3itter Android client: a Rust (Tauri v2) shell with an instance picker.",
+  "scripts": {
+    "tauri": "tauri",
+    "icons": "tauri icon ../public/icon-512.png",
+    "android:init": "tauri android init",
+    "android:build": "tauri android build --apk --target aarch64"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

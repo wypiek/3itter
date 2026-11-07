@@ -8,7 +8,7 @@ import { findBlocked, isReservedHandle, filterConfig, categoriesFor, reasonLabel
 import { fail, route } from './http.js';
 import {
   DOMAIN, VERSION, ADMIN_HANDLE, PAGE, MAX_POST_LEN, MAX_IMAGES, EDIT_WINDOW_MS, REPLY_POLICIES, canReplyTo, parsePollInput, MAX_MSG_LEN, SHAPES, NOTIF_TYPES, REPORT_REASONS, HANDLE_RE, HASHTAG_RE,
-  instance, isStaff, audit, hashPassword, verifyPassword, validatePassword, createSession, clearSession, sessionId, rateLimit, clientIp,
+  instance, isStaff, audit, hashPassword, verifyPassword, validatePassword, createSession, clearSession, browserAccounts, switchAccount, MAX_ACCOUNTS, sessionId, rateLimit, clientIp,
   saveImage, str, intParam, normalizeWebsite, userByHandle, livePost, isBlockedBetween, hiddenIds,
   cleanFlags, publicUser, selfUser, miniUser, loadPosts, itemsToFeed, notify, notifyMentions, softDeletePost,
 } from './core.js';
@@ -89,7 +89,7 @@ route('POST', '/api/auth/signup', async ({ req, res, body }) => {
     run('UPDATE users SET invited_with = :c WHERE id = :id', { c: invite.code, id });
   }
   if (role === 'admin') audit(id, 'admin.bootstrap', handle, 'first account became admin');
-  createSession(req, res, id);
+  createSession(req, res, id, { add: body.add === true });
   return { user: selfUser(get('SELECT * FROM users WHERE id = :id', { id })) };
 }, { auth: false });
 
@@ -99,11 +99,26 @@ route('POST', '/api/auth/login', async ({ req, res, body }) => {
   const ok = u && await verifyPassword(String(body.password || ''), u.password_hash);
   if (!ok) fail(401, 'Wrong handle or password.');
   if (u.suspended) fail(403, 'This account has been suspended. Contact the instance admin if you think this is a mistake.');
-  createSession(req, res, u.id);
+  createSession(req, res, u.id, { add: body.add === true });
   return { user: selfUser(u) };
 }, { auth: false });
 
-route('POST', '/api/auth/logout', ({ req, res }) => { clearSession(req, res); return { ok: true }; }, { auth: false });
+route('POST', '/api/auth/logout', ({ req, res, body }) => {
+  const next = clearSession(req, res, { all: body.all === true });
+  return { ok: true, switchedTo: next ? selfUser(next) : null };
+}, { auth: false });
+
+// Account switcher
+route('GET', '/api/accounts', ({ req }) => ({
+  accounts: browserAccounts(req).map((a) => ({ ...publicUser(a.user), active: a.active })),
+  max: MAX_ACCOUNTS,
+}), { auth: false });
+
+route('POST', '/api/accounts/switch', ({ req, res, body }) => {
+  const user = switchAccount(req, res, Number(body.id));
+  if (!user) fail(404, 'That account isn’t signed in on this browser any more.');
+  return { user: selfUser(user) };
+}, { auth: false });
 
 // ---------------------------------------------------------------- account
 

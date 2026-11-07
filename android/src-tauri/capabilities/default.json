@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The app only needs a window; instances are ordinary web pages.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

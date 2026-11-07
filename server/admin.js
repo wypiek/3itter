@@ -14,6 +14,13 @@ const STAFF = { auth: 'staff' };
 const ADMIN = { auth: 'admin' };
 const DAY = 24 * 3600_000;
 
+// Admin routes take "id:123" (stable across renames) or a handle.
+function userRef(ref) {
+  const m = /^id:(\d+)$/.exec(String(ref));
+  if (m) return get('SELECT * FROM users WHERE id = :id', { id: Number(m[1]) }) || fail(404, 'User not found.');
+  return userByHandle(ref, { includeHidden: true });
+}
+
 function adminUser(u) {
   return {
     ...publicUser(u, u.id),
@@ -82,7 +89,7 @@ route('GET', '/api/admin/users', ({ query }) => {
 }, STAFF);
 
 route('PATCH', '/api/admin/users/:handle', ({ me, params, body }) => {
-  const u = userByHandle(params.handle, { includeHidden: true });
+  const u = userRef(params.handle);
   if (u.deleted_at) fail(400, 'That account was deleted.');
   const changes = [];
   if ('verified' in body) {
@@ -112,7 +119,7 @@ route('PATCH', '/api/admin/users/:handle', ({ me, params, body }) => {
 
 route('DELETE', '/api/admin/users/:handle/posts', ({ me, params }) => {
   if (me.role !== 'admin') fail(403, 'Only admins can do this.');
-  const u = userByHandle(params.handle, { includeHidden: true });
+  const u = userRef(params.handle);
   const ids = all('SELECT id FROM posts WHERE author_id = :id AND deleted = 0', { id: u.id });
   tx(() => { for (const { id } of ids) softDeletePost(id); });
   audit(me.id, 'user.purge_posts', `@${u.handle}`, `${ids.length} posts`);
@@ -255,14 +262,14 @@ route('GET', '/api/admin/filter/scan', () => {
     ];
     for (const [field, value, opts] of checks) {
       const hit = findBlocked(value, opts.cats, opts);
-      if (hit) { flagged.push({ user: { ...publicUser(u), suspended: u.suspended }, field, reason: reasonLabel(hit) }); break; }
+      if (hit) { flagged.push({ user: adminUser(u), field, reason: reasonLabel(hit) }); break; }
     }
   }
   return { flagged: flagged.slice(0, 200) };
 }, STAFF);
 
 route('POST', '/api/admin/users/:handle/rename', ({ me, params, body }) => {
-  const u = userByHandle(params.handle, { includeHidden: true });
+  const u = userRef(params.handle);
   if (u.domain) fail(400, 'Remote accounts are renamed on their own instance.');
   if (u.deleted_at) fail(400, 'That account was deleted.');
   const out = {};
@@ -279,12 +286,31 @@ route('POST', '/api/admin/users/:handle/rename', ({ me, params, body }) => {
   run(`UPDATE users SET handle = :handle, name = :name, bio = :bio WHERE id = :id`,
     { handle: out.handle ?? u.handle, name: out.name ?? u.name, bio: out.bio ?? u.bio, id: u.id });
   audit(me.id, 'user.rename', `@${u.handle}`, [out.handle && `handle → @${out.handle}`, out.name && 'name reset', out.bio === '' && 'bio cleared'].filter(Boolean).join(', '));
-  return { user: publicUser(get('SELECT * FROM users WHERE id = :id', { id: u.id })) };
+  return { user: adminUser(get('SELECT * FROM users WHERE id = :id', { id: u.id })) };
+}, STAFF);
+
+// Everything a moderator needs about one account.
+route('GET', '/api/admin/users/:handle', ({ me, params }) => {
+  const u = userRef(params.handle);
+  const recent = all('SELECT id FROM posts WHERE author_id = :id AND deleted = 0 ORDER BY created_at DESC LIMIT 5', { id: u.id }).map((r) => r.id);
+  return {
+    user: { ...adminUser(u), invitedWith: u.invited_with || null, passkeys: get('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = :id', { id: u.id }).n,
+      sessions: get('SELECT COUNT(*) AS n FROM sessions WHERE user_id = :id AND expires_at > :now', { id: u.id, now: Date.now() }).n,
+      following: get('SELECT COUNT(*) AS n FROM follows WHERE follower_id = :id', { id: u.id }).n },
+    posts: loadPosts(recent, me.id, { hidden: new Set(), words: [] }),
+    reports: all(`SELECT r.id, r.reason, r.note, r.status, r.resolution, r.created_at, x.handle AS reporter FROM reports r
+                  LEFT JOIN users x ON x.id = r.reporter_id WHERE r.target_id = :id ORDER BY r.id DESC LIMIT 20`, { id: u.id })
+      .map((r) => ({ id: r.id, reason: r.reason, note: r.note, status: r.status, resolution: r.resolution, createdAt: r.created_at, reporter: r.reporter })),
+    history: all(`SELECT a.action, a.detail, a.created_at, x.handle AS actor FROM audit_log a LEFT JOIN users x ON x.id = a.actor_id
+                  WHERE a.target = :t OR a.target LIKE :t2 OR a.detail LIKE :t3 ORDER BY a.id DESC LIMIT 20`,
+    { t: `@${u.handle}`, t2: `@${u.handle} %`, t3: `%→ @${u.handle}%` })
+      .map((a) => ({ action: a.action, detail: a.detail, createdAt: a.created_at, actor: a.actor })),
+  };
 }, STAFF);
 
 route('DELETE', '/api/admin/users/:handle', ({ me, params, body }) => {
   if (me.role !== 'admin') fail(403, 'Only admins can delete accounts.');
-  const u = userByHandle(params.handle, { includeHidden: true });
+  const u = userRef(params.handle);
   if (u.id === me.id) fail(400, 'Delete your own account from Settings → Account.');
   if (u.role === 'admin') fail(403, 'Remove their admin role first.');
   if (u.deleted_at) fail(400, 'Already deleted.');

@@ -140,11 +140,13 @@ function reports(box) {
 
 // ---------------------------------------------------------------- users
 
+const ref = (u) => `id:${u.id}`; // stable across handle changes
+
 function userItem(u) {
-  return html`<div class="list-item admin-user" data-user="${u.handle}">
-    ${avatar(u, 'md')}
+  return html`<div class="list-item admin-user" data-uid="${u.id}" tabindex="0" role="button" aria-label="Details for @${u.handle}">
+    ${avatar(u, 'md', { link: false })}
     <div class="li-text">
-      <div class="li-head"><a class="post-name" href="/u/${u.handle}">${nameOf(u)}</a> ${staffBadge(u.staff)}
+      <div class="li-head"><span class="post-name">${nameOf(u)}</span> ${staffBadge(u.staff)}
         ${u.suspended === 1 ? html`<span class="tag bad">Suspended</span>` : u.suspended === 2 ? html`<span class="tag">Defederated</span>` : ''}</div>
       <div class="li-sub">@${u.handle} ${remoteChip(u)}</div>
       <div class="li-sub">${compact(u.posts)} post${u.posts === 1 ? '' : 's'} · ${compact(u.counts.followers)} follower${u.counts.followers === 1 ? '' : 's'} · joined ${relTime(u.createdAt)}${u.lastActive ? ` · active ${relTime(u.lastActive)}` : ''}${u.openReports ? html` · <span class="warn-text">${u.openReports} open report${u.openReports === 1 ? '' : 's'}</span>` : ''}</div>
@@ -153,66 +155,89 @@ function userItem(u) {
   </div>`;
 }
 
+// The full action menu for one account. `onChange(user)` gets the fresh admin record after each change.
+function userMenuItems(u, { onChange, onGone }) {
+  const admin = state.me.role === 'admin';
+  const local = !u.domain;
+  const update = async (body, msg) => {
+    try {
+      const { user } = await api(`/admin/users/${ref(u)}`, { method: 'PATCH', body });
+      onChange?.(user);
+      toast(msg);
+    } catch (err) { toast(err.message); }
+  };
+  return [
+    { icon: 'info', label: 'Details', onSelect: () => openUserDetails(u, { onChange, onGone }) },
+    { icon: 'person', label: 'View profile', onSelect: () => emit('navigate', `/u/${u.handle}`) },
+    { icon: u.verified ? 'remove_moderator' : 'verified', label: u.verified ? 'Remove verification' : 'Verify', onSelect: () => update({ verified: !u.verified }, u.verified ? 'Verification removed' : `@${u.handle} is verified`) },
+    ...(admin && local ? ['-',
+      ...['user', 'moderator', 'admin'].filter((r) => r !== u.role).map((r) => ({
+        icon: r === 'admin' ? 'shield_person' : r === 'moderator' ? 'shield' : 'person_remove',
+        label: r === 'user' ? 'Remove staff role' : `Make ${r}`,
+        onSelect: async () => { if (await confirmDialog({ title: `Change role of @${u.handle}?`, body: `They will become ${r === 'user' ? 'a regular user' : `a ${r}`}.`, confirm: 'Change role' })) update({ role: r }, 'Role updated'); },
+      }))] : []),
+    '-',
+    u.suspended === 1
+      ? { icon: 'lock_open', label: 'Unsuspend', onSelect: () => update({ suspended: false }, `@${u.handle} unsuspended`) }
+      : { icon: 'block', label: 'Suspend', danger: true, onSelect: async () => { if (await confirmDialog({ title: `Suspend @${u.handle}?`, body: 'They’ll be signed out and their content hidden until you unsuspend them.', confirm: 'Suspend', danger: true })) update({ suspended: true }, `@${u.handle} suspended`); } },
+    ...(admin ? [{ icon: 'delete_sweep', label: 'Delete all posts', danger: true, onSelect: async () => {
+      if (!await confirmDialog({ title: `Delete every post by @${u.handle}?`, body: 'This can’t be undone.', confirm: 'Delete all', danger: true })) return;
+      try { const r = await api(`/admin/users/${ref(u)}/posts`, { method: 'DELETE' }); toast(`${r.deleted} posts deleted`); onChange?.((await api(`/admin/users/${ref(u)}`)).user); } catch (err) { toast(err.message); }
+    } }] : []),
+    ...moderationItems(u, { onChange, onGone }),
+  ];
+}
+
 function users(box) {
   let filter = 'local';
   let q = '';
   box.innerHTML = String(html`
-    <form class="search-bar admin-search" role="search">${icon('search')}<input type="search" name="q" placeholder="Search people" aria-label="Search people"></form>
+    <form class="search-bar admin-search" role="search">${icon('search')}<input type="search" name="q" placeholder="Search by name or handle" aria-label="Search people"></form>
     <div class="chips">${[['local', 'Local'], ['remote', 'Remote'], ['staff', 'Staff'], ['verified', 'Verified'], ['suspended', 'Suspended'], ['all', 'Everyone']].map(([k, l]) => html`
       <button class="chip" type="button" data-filter="${k}" aria-pressed="${String(k === filter)}">${l}</button>`)}</div>
     <div class="user-list"></div>`);
-  const cache = new Map();
+  const cache = new Map(); // id -> admin record
   const mount = () => {
     box.querySelectorAll('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === filter)));
     box.querySelector('.user-list').replaceChildren(infiniteList({
       load: async (offset) => {
         const r = await api(`/admin/users?filter=${filter}&q=${encodeURIComponent(q)}&offset=${offset}`);
-        r.users.forEach((u) => cache.set(u.handle, u));
+        r.users.forEach((u) => cache.set(String(u.id), u));
         return { items: r.users, next: r.next };
       },
       render: userItem, className: 'seg tight',
       empty: emptyState({ icon: 'person_search', shape: 'clover8', title: 'No people found' }),
     }));
   };
+  const handlersFor = (row) => ({
+    onChange: (user) => {
+      cache.set(String(user.id), user);
+      const fresh = el(userItem(user));
+      row.replaceWith(fresh);
+      row = fresh;
+    },
+    onGone: () => row.remove(),
+  });
   let timer;
   box.querySelector('form').addEventListener('submit', (e) => e.preventDefault());
   box.querySelector('input').addEventListener('input', (e) => { clearTimeout(timer); timer = setTimeout(() => { q = e.target.value.trim(); mount(); }, 250); });
+  const openRow = (row, anchor) => {
+    const u = cache.get(row.dataset.uid);
+    if (!u) return;
+    if (anchor) openMenu(anchor, userMenuItems(u, handlersFor(row)));
+    else openUserDetails(u, handlersFor(row));
+  };
   box.addEventListener('click', (e) => {
     const f = e.target.closest('[data-filter]');
     if (f) { filter = f.dataset.filter; mount(); return; }
+    const row = e.target.closest('[data-uid]');
+    if (!row) return;
     const menuBtn = e.target.closest('[data-user-menu]');
-    if (!menuBtn) return;
-    const row = menuBtn.closest('[data-user]');
-    const u = cache.get(row.dataset.user);
-    const admin = state.me.role === 'admin';
-    const update = async (body, msg) => {
-      try {
-        const { user } = await api(`/admin/users/${encodeURIComponent(u.handle)}`, { method: 'PATCH', body });
-        cache.set(user.handle, user);
-        row.replaceWith(el(userItem(user)));
-        toast(msg);
-      } catch (err) { toast(err.message); }
-    };
-    const local = !u.domain;
-    openMenu(menuBtn, [
-      { icon: 'person', label: 'View profile', onSelect: () => emit('navigate', `/u/${u.handle}`) },
-      { icon: u.verified ? 'remove_moderator' : 'verified', label: u.verified ? 'Remove verification' : 'Verify', onSelect: () => update({ verified: !u.verified }, u.verified ? 'Verification removed' : `@${u.handle} is verified`) },
-      ...(admin && local ? ['-',
-        ...['user', 'moderator', 'admin'].filter((r) => r !== u.role).map((r) => ({
-          icon: r === 'admin' ? 'shield_person' : r === 'moderator' ? 'shield' : 'person_remove',
-          label: r === 'user' ? 'Remove staff role' : `Make ${r}`,
-          onSelect: async () => { if (await confirmDialog({ title: `Change role of @${u.handle}?`, body: `They will become ${r === 'user' ? 'a regular user' : `a ${r}`}.`, confirm: 'Change role' })) update({ role: r }, 'Role updated'); },
-        }))] : []),
-      '-',
-      u.suspended === 1
-        ? { icon: 'lock_open', label: 'Unsuspend', onSelect: () => update({ suspended: false }, `@${u.handle} unsuspended`) }
-        : { icon: 'block', label: 'Suspend', danger: true, onSelect: async () => { if (await confirmDialog({ title: `Suspend @${u.handle}?`, body: 'They’ll be signed out and their content hidden until you unsuspend them.', confirm: 'Suspend', danger: true })) update({ suspended: true }, `@${u.handle} suspended`); } },
-      ...(admin ? [{ icon: 'delete_sweep', label: 'Delete all posts', danger: true, onSelect: async () => {
-        if (!await confirmDialog({ title: `Delete every post by @${u.handle}?`, body: 'This can’t be undone.', confirm: 'Delete all', danger: true })) return;
-        try { const r = await api(`/admin/users/${encodeURIComponent(u.handle)}/posts`, { method: 'DELETE' }); toast(`${r.deleted} posts deleted`); } catch (err) { toast(err.message); }
-      } }] : []),
-      ...moderationItems(u, () => row.remove()),
-    ]);
+    openRow(row, menuBtn);
+  });
+  box.addEventListener('keydown', (e) => {
+    const row = e.target.closest?.('[data-uid]');
+    if (row && e.key === 'Enter' && e.target === row) openRow(row);
   });
   mount();
 }
@@ -341,28 +366,87 @@ async function instanceSettings(box) {
   });
 }
 
+// ---------------------------------------------------------------- user details dialog
+
+const ACTION_LABELS = {
+  'user.suspend': 'Suspended', 'user.unsuspend': 'Unsuspended', 'user.verify': 'Verified', 'user.unverify': 'Verification removed',
+  'user.role': 'Role changed', 'user.rename': 'Renamed', 'user.purge_posts': 'Posts deleted', 'user.delete': 'Account deleted', 'post.delete': 'Post deleted',
+};
+
+async function openUserDetails(u, handlers = {}) {
+  const box = el(html`<div class="user-details">
+    <div class="dialog-head">
+      <button class="icon-btn" type="button" data-close aria-label="Close">${icon('close')}</button>
+      <h2 class="title-large emph">Account details</h2>
+      <button class="icon-btn" type="button" data-ud-menu aria-label="Actions">${icon('more_vert')}</button>
+    </div>
+    <div class="dialog-body ud-body">${loader()}</div>
+  </div>`);
+  const { close } = openDialog(box, { cls: 'fullscreen-mobile' });
+  let current = u;
+  const draw = async () => {
+    let d;
+    try { d = await api(`/admin/users/${ref(current)}`); } catch (err) { box.querySelector('.ud-body').textContent = err.message; return; }
+    current = d.user;
+    const x = d.user;
+    box.querySelector('.ud-body').innerHTML = String(html`
+      <section class="ud-head">
+        ${avatar(x, 'lg', { link: false })}
+        <div><div class="title-large emph">${nameOf(x)} ${staffBadge(x.staff)}</div>
+          <div class="setting-sub">@${x.handle} · id ${x.id}${x.domain ? html` · ${remoteChip(x)}` : ''}</div>
+          <div class="ud-tags">${x.suspended === 1 ? html`<span class="tag bad">Suspended</span>` : html`<span class="tag ok">Active</span>`}
+            ${x.verified ? html`<span class="tag info">Verified</span>` : ''}${x.role !== 'user' ? html`<span class="tag warn">${x.role}</span>` : ''}
+            ${x.invitedWith ? html`<span class="tag">Invite ${x.invitedWith}</span>` : ''}</div></div>
+      </section>
+      ${x.bio ? html`<p class="ud-bio">${x.bio}</p>` : ''}
+      <div class="ud-stats">
+        ${[['Posts', x.posts], ['Followers', x.counts.followers], ['Following', x.following], ['Open reports', x.openReports], ['Sessions', x.sessions], ['Passkeys', x.passkeys]]
+    .map(([l, n]) => html`<div><b>${compact(n)}</b><span>${l}</span></div>`)}
+      </div>
+      <p class="setting-sub">Joined ${fullTime(x.createdAt)}${x.lastActive ? ` · last active ${relTime(x.lastActive)}` : ''}</p>
+      <h3 class="title-medium emph">Recent posts</h3>
+      ${d.posts.length ? html`<div class="seg feed ud-posts">${d.posts.map((p) => postCard(p, { cls: 'preview' }))}</div>` : html`<p class="list-empty">No posts.</p>`}
+      <h3 class="title-medium emph">Reports about this account</h3>
+      ${d.reports.length ? html`<div class="seg tight">${d.reports.map((r) => html`<div class="list-item">
+          <span class="li-icon">${icon(r.status === 'open' ? 'flag' : 'task_alt')}</span>
+          <div class="li-text"><div class="li-head">${REASONS[r.reason] || r.reason} <span class="tag ${r.status === 'open' ? 'warn' : ''}">${r.status === 'open' ? 'Open' : RESOLUTIONS[r.resolution] || 'Resolved'}</span></div>
+          <div class="li-sub">by @${r.reporter || 'deleted'} · ${relTime(r.createdAt)}${r.note ? ` · “${r.note}”` : ''}</div></div></div>`)}</div>` : html`<p class="list-empty">No reports.</p>`}
+      <h3 class="title-medium emph">Moderation history</h3>
+      ${d.history.length ? html`<div class="seg tight">${d.history.map((h) => html`<div class="list-item"><span class="li-icon">${icon('history')}</span>
+          <div class="li-text"><div class="li-head">${ACTION_LABELS[h.action] || h.action}</div><div class="li-sub">${h.actor ? `@${h.actor}` : 'system'} · ${relTime(h.createdAt)}${h.detail ? ` · ${h.detail}` : ''}</div></div></div>`)}</div>`
+    : html`<p class="list-empty">Nothing yet.</p>`}`);
+  };
+  box.querySelector('[data-ud-menu]').addEventListener('click', (e) => {
+    openMenu(e.currentTarget, userMenuItems(current, {
+      onChange: (user) => { current = user; handlers.onChange?.(user); draw(); },
+      onGone: () => { handlers.onGone?.(); close(); },
+    }).filter((it) => it === '-' || it.label !== 'Details'));
+  });
+  draw();
+}
+
 // ---------------------------------------------------------------- moderation actions shared by Users and the filter scan
 
-function moderationItems(u, onGone) {
+function moderationItems(u, { onChange, onGone } = {}) {
   if (u.domain) return [];
   const admin = state.me.role === 'admin';
+  const rename = async (body, msg) => {
+    try { const { user } = await api(`/admin/users/${ref(u)}/rename`, { method: 'POST', body }); toast(msg); onChange?.(user); } catch (err) { toast(err.message); }
+  };
   return ['-',
-    { icon: 'badge', label: 'Change handle', onSelect: () => renameDialog(u) },
+    { icon: 'badge', label: 'Change handle', onSelect: () => renameDialog(u, onChange) },
     { icon: 'person_off', label: 'Reset display name', onSelect: async () => {
-      if (!await confirmDialog({ title: `Reset @${u.handle}’s display name?`, body: 'It will be replaced with their handle.', confirm: 'Reset' })) return;
-      try { await api(`/admin/users/${encodeURIComponent(u.handle)}/rename`, { method: 'POST', body: { resetName: true } }); toast('Display name reset'); } catch (err) { toast(err.message); }
+      if (await confirmDialog({ title: `Reset @${u.handle}’s display name?`, body: 'It will be replaced with their handle.', confirm: 'Reset' })) rename({ resetName: true }, 'Display name reset');
     } },
-    { icon: 'format_clear', label: 'Clear bio', onSelect: async () => {
-      try { await api(`/admin/users/${encodeURIComponent(u.handle)}/rename`, { method: 'POST', body: { resetBio: true } }); toast('Bio cleared'); } catch (err) { toast(err.message); }
-    } },
+    { icon: 'format_clear', label: 'Clear bio', onSelect: () => rename({ resetBio: true }, 'Bio cleared') },
     ...(admin ? [{ icon: 'person_remove', label: 'Delete account', danger: true, onSelect: async () => {
       if (!await confirmDialog({ title: `Delete @${u.handle}?`, body: 'Their posts, follows and messages are removed and the account is anonymised. The handle stays blocked if it breaks the word filter. This can’t be undone.', confirm: 'Delete account', danger: true })) return;
-      try { await api(`/admin/users/${encodeURIComponent(u.handle)}`, { method: 'DELETE', body: { reason: 'admin action' } }); toast(`@${u.handle} deleted`); onGone?.(); } catch (err) { toast(err.message); }
+      try { await api(`/admin/users/${ref(u)}`, { method: 'DELETE', body: { reason: 'admin action' } }); toast(`@${u.handle} deleted`); onGone?.(); } catch (err) { toast(err.message); }
     } }] : []),
   ];
 }
 
-function renameDialog(u) {
+function renameDialog(u, onChange) {
   const box = el(html`<form novalidate>
     <h2 class="dialog-title headline-small">Change @${u.handle}’s handle</h2>
     <div class="dialog-body stack">
@@ -376,9 +460,10 @@ function renameDialog(u) {
   box.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-      const { user } = await api(`/admin/users/${encodeURIComponent(u.handle)}/rename`, { method: 'POST', body: { handle: box.handle.value.trim(), resetName: box.resetName.checked } });
+      const { user } = await api(`/admin/users/${ref(u)}/rename`, { method: 'POST', body: { handle: box.handle.value.trim(), resetName: box.resetName.checked } });
       close();
       toast(`Now @${user.handle}`);
+      onChange?.(user);
     } catch (err) { toast(err.message); }
   });
   requestAnimationFrame(() => box.handle.select());
@@ -420,25 +505,27 @@ async function contentFilter(box) {
     results.innerHTML = String(loader('sm'));
     try {
       const { flagged } = await api('/admin/filter/scan');
+      const scanRow = (f) => html`<div class="list-item scan-hit" data-uid="${f.user.id}" tabindex="0" role="button">
+          ${avatar(f.user, 'sm', { link: false })}
+          <div class="li-text"><div class="li-head"><span class="post-name">${nameOf(f.user)}</span>
+            ${f.user.suspended === 1 ? html`<span class="tag bad">Suspended</span>` : ''}${f.fixed ? html`<span class="tag ok">Updated</span>` : ''}</div>
+            <div class="li-sub">@${f.user.handle} · ${f.fixed ? 'changed since the scan' : `${f.field} contains ${f.reason}`}</div></div>
+          <button class="icon-btn" type="button" data-scan-menu aria-label="Moderate @${f.user.handle}">${icon('more_vert')}</button></div>`;
       results.innerHTML = flagged.length ? String(html`<h3 class="title-medium emph">${flagged.length} account${flagged.length === 1 ? '' : 's'} need${flagged.length === 1 ? 's' : ''} attention</h3>
-        <div class="seg tight">${flagged.map((f) => html`<div class="list-item scan-hit" data-user="${f.user.handle}">
-          ${avatar(f.user, 'sm')}
-          <div class="li-text"><div class="li-head"><a class="post-name" href="/u/${f.user.handle}">${nameOf(f.user)}</a>
-            ${f.user.suspended ? html`<span class="tag bad">Suspended</span>` : ''}</div>
-            <div class="li-sub">@${f.user.handle} · ${f.field} contains ${f.reason}</div></div>
-          <button class="icon-btn" type="button" data-scan-menu aria-label="Moderate @${f.user.handle}">${icon('more_vert')}</button></div>`)}</div>`)
+        <div class="seg tight">${flagged.map(scanRow)}</div>`)
         : String(html`<p class="list-empty">${icon('verified_user', 'sm')} No accounts break the filter.</p>`);
-      results.querySelectorAll('[data-scan-menu]').forEach((b) => b.addEventListener('click', () => {
-        const row = b.closest('[data-user]');
-        const f = flagged.find((x) => x.user.handle === row.dataset.user);
-        openMenu(b, [
-          { icon: 'person', label: 'View profile', onSelect: () => emit('navigate', `/u/${f.user.handle}`) },
-          f.user.suspended === 1
-            ? { icon: 'lock_open', label: 'Unsuspend', onSelect: async () => { try { await api(`/admin/users/${encodeURIComponent(f.user.handle)}`, { method: 'PATCH', body: { suspended: false } }); toast('Unsuspended'); } catch (err) { toast(err.message); } } }
-            : { icon: 'block', label: 'Suspend', danger: true, onSelect: async () => { try { await api(`/admin/users/${encodeURIComponent(f.user.handle)}`, { method: 'PATCH', body: { suspended: true } }); toast(`@${f.user.handle} suspended`); } catch (err) { toast(err.message); } } },
-          ...moderationItems(f.user, () => row.remove()),
-        ]);
-      }));
+      const handlers = (row, f) => ({
+        onChange: (user) => { f.user = user; f.fixed = true; const fresh = el(scanRow(f)); row.replaceWith(fresh); row = fresh; },
+        onGone: () => row.remove(),
+      });
+      results.onclick = (e) => { // reassigned on every scan so handlers don't pile up
+        const row = e.target.closest('[data-uid]');
+        if (!row) return;
+        const f = flagged.find((x) => String(x.user.id) === row.dataset.uid);
+        const btn = e.target.closest('[data-scan-menu]');
+        if (btn) openMenu(btn, userMenuItems(f.user, handlers(row, f)));
+        else openUserDetails(f.user, handlers(row, f));
+      };
     } catch (err) { results.textContent = err.message; }
   });
 }

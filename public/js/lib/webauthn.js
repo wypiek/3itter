@@ -54,7 +54,7 @@ export async function registerPasskey(name) {
 }
 
 // Sign in with a passkey. `conditional` shows passkeys in the handle field's autofill instead of a dialog.
-export async function signInWithPasskey({ conditional = false, signal } = {}) {
+export async function signInWithPasskey({ conditional = false, signal, add = false } = {}) {
   const { publicKey: o } = await api('/auth/passkey/options', { method: 'POST' });
   let cred;
   try {
@@ -68,6 +68,7 @@ export async function signInWithPasskey({ conditional = false, signal } = {}) {
   return api('/auth/passkey', {
     method: 'POST',
     body: {
+      add,
       credential: {
         id: cred.id, rawId: toB64u(cred.rawId), type: cred.type,
         response: {

@@ -64,6 +64,8 @@ Admin CLI: `npm run admin -- promote|moderator|demote|verify|unverify|unsuspend 
   Reserved handles (admin, support, staff…) can't be registered. Bios block slurs by default; posts are unfiltered unless an admin turns it on.
   Admin → Instance → Content filter has extra blocked, allowed and reserved words and **Scan accounts**, which finds existing offenders.
   From there admins can suspend an account, change its handle, reset its display name, clear its bio or delete it.
+- **Account switcher:** stay signed in to up to 5 accounts in one browser and switch from the account menu (or the mobile drawer). Logging out moves you to the next account. Tokens stay in HttpOnly cookies.
+- **Mobile:** a navigation drawer from your avatar, a bottom bar and compose button that hide while you scroll, pull-to-refresh, and bigger touch targets.
 - **Desktop notifications** while 3itter is open in a background tab (Settings → Notifications).
 - **Link previews:** Open Graph / Twitter Card tags, oEmbed and a Mastodon-compatible status endpoint, so shared links get FixupX-style embeds in Discord and others.
 - **Timelines:** "For you" (engagement × recency) and "Following".
@@ -84,6 +86,15 @@ Admin CLI: `npm run admin -- promote|moderator|demote|verify|unverify|unsuspend 
   - **Audit log.**
 - **Terms of Service** (`/terms`) and **Privacy Policy** (`/privacy`). Both are readable without an account and fill in the instance's name, domain, contact and rules.
   They are *templates*. Have them reviewed for your jurisdiction before opening an instance to the public.
+
+## Android app
+
+`android/` contains the 3itter Android client: a Rust ([Tauri v2](https://tauri.app)) app around the system WebView.
+
+- It starts on an **instance picker**: enter any 3itter instance's address. The picker checks `/.well-known/3itter` to make sure the server really runs 3itter, remembers it, and opens it next time.
+- Inside an instance, the web app knows it's running in the app. The sign-in screen and the account menu get a **Switch instance** button that returns to the picker, so you can change instances after logging out.
+- Build a signed APK with `android/build-apk.sh`. You need Rust (rustup) with Android targets, JDK 17, the Android SDK and the NDK. The script expects them in `~/.local/opt/android-build`; override that with `TOOLCHAIN=...`.
+  It creates a signing key next to the toolchain on first run. Keep that key: every update must be signed with it.
 
 ## Federation (3itter ↔ 3itter only)
 

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>3itter</title>
+  <link rel="stylesheet" href="launcher.css">
+  <script type="module" src="launcher.js"></script>
+</head>
+<body>
+  <main class="launcher" id="app">
+    <header class="brand">
+      <svg class="mark" viewBox="-4 -4 72 72" aria-hidden="true"><path d="M32 2l6.2 8.9 10.4-3 1 10.8 10.8 1-3 10.4L62 32l-8.6 6.2 3 10.4-10.8 1-1 10.8-10.4-3L32 62l-6.2-8.6-10.4 3-1-10.8-10.8-1 3-10.4L2 32l8.9-6.2-3-10.4 10.8-1 1-10.8 10.4 3z" stroke-width="6" stroke-linejoin="round"/></svg>
+      <span>3itter</span>
+    </header>
+
+    <section class="hero">
+      <p class="eyebrow">Material 3 Twitter</p>
+      <h1>Choose your instance</h1>
+      <p class="sub">3itter is a network of independent servers. Enter the address of the one you use, or pick one you’ve used before.</p>
+    </section>
+
+    <form class="connect" novalidate>
+      <label class="field">
+        <span class="field-label">Instance address</span>
+        <span class="field-row">
+          <span class="scheme">https://</span>
+          <input name="url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="twitter.republican" aria-label="Instance address">
+        </span>
+      </label>
+      <p class="error" role="alert" hidden></p>
+      <button class="btn filled" type="submit"><span class="label">Connect</span><span class="spinner" hidden></span></button>
+    </form>
+
+    <section class="saved" hidden>
+      <h2>Your instances</h2>
+      <ul class="list"></ul>
+    </section>
+
+    <section class="suggested">
+      <h2>Popular instance</h2>
+      <ul class="list"><li><button class="item" type="button" data-url="https://twitter.republican">
+        <span class="avatar">3</span><span class="text"><b>twitter.republican</b><small>The original 3itter instance</small></span><span class="go">›</span>
+      </button></li></ul>
+    </section>
+
+    <footer class="foot">3itter for Android · <a href="https://github.com/wypiek/3itter">source</a></footer>
+  </main>
+</body>
+</html>
