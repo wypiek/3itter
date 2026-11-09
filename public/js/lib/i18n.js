@@ -164,8 +164,9 @@ export async function setLanguage(code) {
   if (lang === 'en') { dict = null; patterns = []; observer?.disconnect(); return; }
   try {
     // Languages live in one of two tables with the same layout (strings.js, strings-extra.js).
-    let { LANGS, STRINGS } = await import('/js/i18n/strings.js');
-    if (!LANGS.includes(lang)) ({ LANGS, STRINGS } = await import('/js/i18n/strings-extra.js'));
+    // Relative, so they load from the same versioned folder as this module (see server/assets.js).
+    let { LANGS, STRINGS } = await import('../i18n/strings.js');
+    if (!LANGS.includes(lang)) ({ LANGS, STRINGS } = await import('../i18n/strings-extra.js'));
     const col = LANGS.indexOf(lang);
     compile(Object.fromEntries(Object.entries(STRINGS).map(([en, row]) => [en, row[col]])));
   } catch {

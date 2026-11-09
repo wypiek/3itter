@@ -33,6 +33,19 @@ Upgrading from Orbit: `orbit.db` is renamed to `3itter.db` automatically, and sa
 
 Admin CLI: `npm run admin -- promote|moderator|demote|verify|unverify|unsuspend <handle>` or `npm run admin -- list`.
 
+## Deploy
+
+`./deploy.sh` deploys the committed code (HEAD) to a server that runs 3itter as a systemd service. Copy `.deploy.env.example` to `.deploy.env` (gitignored) and fill in the server's address, SSH user and key.
+
+1. It checks your tree is committed and the server code parses, then packages HEAD with a `REVISION` file.
+2. On the server it backs up the current code and takes a consistent snapshot of the database (`VACUUM INTO`, safe while the site runs) into `~/3itter-backups`, keeping the last 10 of each.
+3. It replaces the code (the data directory with the database and uploads is never touched), restarts the service and waits until it answers. If it doesn't, it puts the previous code back by itself.
+4. It checks the public address serves the new version.
+
+`./deploy.sh status` shows what's deployed, `./deploy.sh backups` lists backups, and `./deploy.sh rollback` puts back the previous code (it prints how to restore a database snapshot too). `-y` skips the confirmation.
+
+Scripts and styles are served from `/v/<hash>/…` with a hash of their contents (`server/assets.js`), so a deploy is visible right away even behind a CDN that caches files in browsers for hours (Cloudflare's Browser Cache TTL).
+
 ## Features
 
 - **Posting:** up to 500 characters, replies and threads, quote posts, reposts, likes, bookmarks, and **pinned posts**.

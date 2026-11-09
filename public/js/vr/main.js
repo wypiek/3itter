@@ -1,8 +1,8 @@
 // 3itter VR entry point: the landing page, the WebXR session (VR or mixed reality), a flat preview for
 // screens without a headset, and input. Controllers, tracked hands and gaze-and-pinch (Vision Pro) all
 // arrive as WebXR input sources with a target ray plus select events, so they share one code path.
-import { setLanguage, resolveLanguage, t } from '/js/lib/i18n.js';
-import { getTheme } from '/js/lib/theme.js';
+import { setLanguage, resolveLanguage, t } from '../lib/i18n.js';
+import { getTheme } from '../lib/theme.js';
 import { Renderer } from './renderer.js';
 import { compose, perspective, invert, multiply, rayFromMatrix, transformDir, transformPoint, normalize, mat4 } from './math.js';
 import { VRApp, api } from './client.js';

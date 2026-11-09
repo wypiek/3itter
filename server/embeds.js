@@ -12,6 +12,7 @@ import { get, UPLOAD_DIR } from './db.js';
 import { PUBLIC_URL, instance, loadPosts, absUrl, publicUser } from './core.js';
 import { json, send, SECURITY_HEADERS } from './http.js';
 import { clientName } from './locale.js';
+import { versionAssets } from './assets.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const SITE_ICON = `${PUBLIC_URL}/icon-512.png`;
@@ -122,7 +123,7 @@ const videoType = (src) => VIDEO_MIME[String(src).split('.').pop().toLowerCase()
 
 let indexHtml = null;
 function baseHtml() {
-  if (!indexHtml) indexHtml = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  if (!indexHtml) indexHtml = versionAssets(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'));
   return indexHtml;
 }
 

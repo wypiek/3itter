@@ -1,7 +1,7 @@
 // 3itter VR: the app itself. Panels around the viewer show the timeline (with threads and profiles),
 // notifications, a composer with an on-screen keyboard, a dock, toasts and a media viewer.
 // Everything is drawn with Canvas 2D (draw.js) onto panels (panel.js) that main.js places in 3D.
-import { t, locale } from '/js/lib/i18n.js';
+import { t, locale } from '../lib/i18n.js';
 import { Panel } from './panel.js';
 import * as D from './draw.js';
 

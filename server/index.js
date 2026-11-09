@@ -17,6 +17,7 @@ import { startScheduler, countAnonymousView } from './extras.js';
 import { receiveVideo, cleanUnusedMedia } from './media.js';
 import { openStream } from './realtime.js';
 import { tokenAuth, checkTokenAccess } from './orgs.js';
+import { versionedAsset, staticPage } from './assets.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -127,7 +128,7 @@ const MIME = {
   '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8',
 };
 
-function serveFile(res, root, rel, fallbackIndex, pathname = '/', req = null) {
+function serveFile(res, root, rel, fallbackIndex, pathname = '/', req = null, { immutable = false } = {}) {
   const file = path.normalize(path.join(root, rel));
   if (!file.startsWith(root + path.sep)) return send(res, 403, 'Forbidden');
   fs.stat(file, (err, st) => {
@@ -138,7 +139,7 @@ function serveFile(res, root, rel, fallbackIndex, pathname = '/', req = null) {
     const headers = {
       ...SECURITY_HEADERS,
       'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': root === UPLOAD_DIR ? 'public, max-age=31536000, immutable' : 'no-cache',
+      'Cache-Control': root === UPLOAD_DIR || immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
       'Accept-Ranges': 'bytes',
     };
     // Byte ranges, so videos can seek and stream.
@@ -187,7 +188,10 @@ const server = http.createServer(async (req, res) => {
     if (rss) return rssFeed(res, rss[1]);
     if (pathname === '/' || pathname === '/index.html') return sendIndex(res, '/');
     // The VR client is its own page (public/vr.html), not part of the single-page app.
-    if (pathname === '/vr' || pathname === '/vr/') return serveFile(res, PUBLIC_DIR, 'vr.html', false, pathname, req);
+    if (pathname === '/vr' || pathname === '/vr/') return send(res, 200, staticPage('vr.html'), { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+    // Scripts and styles under /v/<version>/ (see assets.js): cached for a year when the version is current.
+    const asset = versionedAsset(pathname);
+    if (asset) return serveFile(res, PUBLIC_DIR, asset.rel, false, pathname, req, { immutable: asset.current });
     // Link previews (signed-out requests to a post page) count as one anonymous view per visitor per day.
     const pv = /^\/p\/(\d+)$/.exec(pathname);
     if (pv && !currentSession(req)) { try { countAnonymousView(Number(pv[1]), clientIp(req)); } catch { /* unknown post */ } }
