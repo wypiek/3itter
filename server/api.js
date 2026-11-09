@@ -55,6 +55,18 @@ route('GET', '/api/instance', ({ req }) => {
 
 // ---------------------------------------------------------------- auth
 
+// A sign-up for a handle that already exists. When it's the same person's brand-new account (same password,
+// created minutes ago) the request is a repeat: a double tap, or a retry by the browser or a proxy after the
+// first copy already went through. Sign them in instead of telling them their own handle is taken.
+const REPEAT_SIGNUP_MS = 15 * 60_000;
+async function repeatedSignup(handle, password) {
+  const u = get('SELECT * FROM users WHERE handle = :handle', { handle });
+  if (!u) return null;
+  const fresh = !u.domain && !u.deleted_at && !u.suspended && Date.now() - u.created_at < REPEAT_SIGNUP_MS;
+  if (fresh && await verifyPassword(password, u.password_hash)) return u;
+  fail(409, 'That handle is taken.');
+}
+
 route('POST', '/api/auth/signup', async ({ req, res, body }) => {
   rateLimit(`auth:${clientIp(req)}`, 20, 10 * 60_000);
   const hasAdmin = !!get(`SELECT 1 AS x FROM users WHERE role = 'admin' AND domain IS NULL AND deleted_at IS NULL AND password_hash != '!'`);
@@ -73,14 +85,28 @@ route('POST', '/api/auth/signup', async ({ req, res, body }) => {
   if (findBlocked(name)) fail(400, 'That display name isn’t allowed. Please pick another.');
   const password = validatePassword(body.password);
   if (body.acceptTerms !== true) fail(400, 'Please accept the Terms of Service and Privacy Policy.');
-  if (get('SELECT 1 AS x FROM users WHERE handle = :handle', { handle })) fail(409, 'That handle is taken.');
+  const repeat = await repeatedSignup(handle, password);
+  if (repeat) {
+    createSession(req, res, repeat.id, { add: body.add === true });
+    return { user: selfUser(repeat) };
+  }
   const hash = await hashPassword(password);
   // The first real account administers the instance (or only ADMIN_HANDLE, when configured).
   const role = !hasAdmin && (!ADMIN_HANDLE || handle.toLowerCase() === ADMIN_HANDLE) ? 'admin' : 'user';
-  const r = run(`INSERT INTO users (handle, name, password_hash, avatar_shape, hue, role, created_at, language)
-                 VALUES (:handle, :name, :hash, :shape, :hue, :role, :t, :lang)`,
-  { handle, name, hash, shape: SHAPES[crypto.randomInt(SHAPES.length)], hue: crypto.randomInt(360), role, t: Date.now(),
-    lang: LANGS.includes(body.language) ? body.language : null });
+  let r;
+  try {
+    r = run(`INSERT INTO users (handle, name, password_hash, avatar_shape, hue, role, created_at, language)
+             VALUES (:handle, :name, :hash, :shape, :hue, :role, :t, :lang)`,
+    { handle, name, hash, shape: SHAPES[crypto.randomInt(SHAPES.length)], hue: crypto.randomInt(360), role, t: Date.now(),
+      lang: LANGS.includes(body.language) ? body.language : null });
+  } catch (e) {
+    // Two copies of the same request raced past the check above while hashing: the other one created the account.
+    if (!/UNIQUE/i.test(String(e.message))) throw e;
+    const raced = await repeatedSignup(handle, password);
+    if (!raced) fail(409, 'That handle is taken.');
+    createSession(req, res, raced.id, { add: body.add === true });
+    return { user: selfUser(raced) };
+  }
   const id = Number(r.lastInsertRowid);
   if (invite) {
     run('UPDATE invites SET uses = uses + 1 WHERE code = :c', { c: invite.code });

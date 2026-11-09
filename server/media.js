@@ -35,26 +35,37 @@ export async function receiveVideo(req, me) {
   const id = crypto.randomUUID();
   const tmp = path.join(UPLOAD_DIR, `${id}.part`);
   const out = fs.createWriteStream(tmp);
+  // Without a listener, a write that finishes after the stream was destroyed (an interrupted upload)
+  // emits an unhandled 'error' and takes the whole server down. Failures are handled below instead.
+  let writeError = null;
+  out.on('error', (e) => { writeError ||= e; });
   let size = 0;
   let head = Buffer.alloc(0);
+  let failed = false;
   try {
     await new Promise((resolve, reject) => {
-      req.on('data', (chunk) => {
+      const stop = (e) => { if (failed) return; failed = true; req.removeListener('data', onData); reject(e); };
+      const onData = (chunk) => {
+        if (failed) return;
         size += chunk.length;
         if (size > MAX_VIDEO_BYTES) {
-          reject(Object.assign(new Error('too large'), { tooLarge: true }));
+          stop(Object.assign(new Error('too large'), { tooLarge: true }));
           req.destroy();
           return;
         }
         if (head.length < 16) head = Buffer.concat([head, chunk.subarray(0, 16 - head.length)]);
         if (!out.write(chunk)) { req.pause(); out.once('drain', () => req.resume()); }
-      });
-      req.on('end', resolve);
-      req.on('error', reject);
-      req.on('aborted', () => reject(new Error('aborted')));
+      };
+      req.on('data', onData);
+      req.on('end', () => (failed ? null : resolve()));
+      req.on('error', stop);
+      req.on('aborted', () => stop(new Error('aborted')));
+      req.on('close', () => { if (!req.complete) stop(new Error('aborted')); });
+      out.on('error', stop);
     });
-    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
+    await new Promise((resolve, reject) => out.end((e) => (e || writeError ? reject(e || writeError) : resolve())));
   } catch (e) {
+    failed = true;
     out.destroy();
     fs.rm(tmp, { force: true }, () => {});
     if (e.tooLarge) fail(413, `Videos can be up to ${MAX_VIDEO_BYTES / 1024 / 1024} MB.`);
