@@ -59,21 +59,22 @@ deployed_rev() { sudo cat "$DEPLOY_DIR/REVISION" 2>/dev/null || echo unknown; }
 # Wait until the service is running and answering on its port.
 healthy() {
   for _ in $(seq 1 30); do
-    if systemctl is-active --quiet "$DEPLOY_SERVICE" && curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:$PORT/api/instance"; then return 0; fi
+    if systemctl is-active --quiet "$DEPLOY_SERVICE" && curl -fs -o /dev/null --max-time 3 "http://127.0.0.1:$PORT/api/instance"; then return 0; fi
     sleep 1
   done
   return 1
 }
 # A consistent copy of the live database (WAL mode: copying the file alone could miss recent writes).
 backup_db() {
-  [ -f "$DBFILE" ] || { echo "  no database at $DBFILE, skipping"; return 0; }
+  # The data directory is private to the service user: check (and read) it with sudo.
+  sudo test -f "$DBFILE" || { echo "  no database at $DBFILE, skipping" >&2; echo none; return 0; }
   local out="$B/db-$1.sqlite"
   sudo "$NODE" --no-warnings -e "new (require(\"node:sqlite\").DatabaseSync)(process.argv[1], { readOnly: true }).prepare(\"VACUUM INTO ?\").run(process.argv[2])" "$DBFILE" "$out"
   sudo gzip -f "$out"
   sudo chown "$(id -u):$(id -g)" "$out.gz" && chmod 600 "$out.gz"
   echo "$out.gz"
 }
-prune() { ls -1t "$B"/$1 2>/dev/null | tail -n +$((DEPLOY_KEEP + 1)) | xargs -r sudo rm -f; }
+prune() { { ls -1t "$B"/$1 2>/dev/null || true; } | tail -n +$((DEPLOY_KEEP + 1)) | xargs -r sudo rm -f; }
 '
 
 # ---------------------------------------------------------------- commands
