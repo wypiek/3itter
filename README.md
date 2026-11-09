@@ -72,7 +72,7 @@ Admin CLI: `npm run admin -- promote|moderator|demote|verify|unverify|unsuspend 
 - **Account switcher:** stay signed in to up to 5 accounts in one browser and switch from the account menu (or the mobile drawer). Logging out moves you to the next account. Tokens stay in HttpOnly cookies.
 - **Mobile:** a navigation drawer from your avatar, a bottom bar and compose button that hide while you scroll, pull-to-refresh, and bigger touch targets.
 - **Realtime:** notifications, messages and unread badges arrive instantly over Server-Sent Events (`/api/stream`), with a snackbar in the app or a desktop notification when the tab is in the background (Settings → Notifications).
-- **"3itter for …":** posts show the device they were written on (3itter for Android, iPhone, Windows, Mac…). It can be turned off in Settings → Privacy & safety.
+- **"3itter for …":** posts show the device they were written on (3itter for Android, iPhone, Windows, Mac…, and **3itter for VR** from the VR client, **Meta Quest** or **VR Web** from a headset's browser). It can be turned off in Settings → Privacy & safety.
 - **Languages:** English, Polski, Deutsch, Español, Français, Português, Українська, Italiano, Nederlands, Türkçe, Čeština and 日本語. The language is picked automatically from where you sign in (Cloudflare's country header, then the browser) and can be changed in Settings → Language or on the landing page. Translations live in `public/js/i18n/strings.js` and `strings-extra.js` (same layout, so a language can be added without touching every row) and are shared with the Android app.
 - **Devices & sessions:** every signed-in browser and app, with device, approximate country, IP and last activity. Sign out one or all others.
 - **Embeds of 3itter links:** Open Graph / Twitter Card tags, oEmbed and a Mastodon-compatible status endpoint, so shared links get FixupX-style embeds in Discord and others.
@@ -94,6 +94,18 @@ Admin CLI: `npm run admin -- promote|moderator|demote|verify|unverify|unsuspend 
   - **Audit log.**
 - **Terms of Service** (`/terms`) and **Privacy Policy** (`/privacy`). Both are readable without an account and fill in the instance's name, domain, contact and rules.
   They are *templates*. Have them reviewed for your jurisdiction before opening an instance to the public.
+
+## VR client
+
+**`/vr`** on every instance is a WebXR client for headsets: Meta Quest, Pico, Apple Vision Pro and PC VR in a WebXR browser. Sign in on the website first (in the headset's browser), then open `/vr` or pick **Enter VR** from the account menu, which only shows up when the browser supports immersive VR.
+
+- **Panels around you:** the timeline in front ("For you" / "Following", threads, profiles with follow), notifications on the left (live over the realtime stream, with toasts), the composer on the right with an on-screen keyboard (letters, symbols, accented letters and emoji), and a dock (home, refresh, recenter, exit).
+- **Posts** show text, images (tap to view large), videos (play in a floating viewer), link cards, quotes, polls (vote in place), content warnings and sensitive-media blur. Like, repost, bookmark and reply.
+- **Input:** controllers (point and pull the trigger, thumbstick to scroll), tracked hands (pinch), and gaze-and-pinch on Vision Pro. Press and drag scrolls with anything. A Bluetooth keyboard types into the composer.
+- **Mixed reality:** on headsets with passthrough (Quest 3, Vision Pro) the same panels can float in your room instead of the virtual space.
+- Posts written here show **"3itter for VR"**: the client sends `X-3itter-Client: vr`. The website in a headset's browser is detected from its user agent (Meta Quest, or VR Web for Pico, Wolvic and others).
+- No headset? **Preview on this screen** (or `/vr?preview`) renders the same scene in a normal window: click to tap, drag the background to look around, scroll with the wheel.
+- No dependencies, like the rest of 3itter: plain WebGL 2 and WebXR. Every panel is a Canvas 2D drawing turned into a texture (`public/js/vr/`: `main.js` session and input, `client.js` the app, `panel.js`, `draw.js`, `renderer.js`, `math.js`).
 
 ## Android app
 
@@ -160,5 +172,6 @@ public/
   css/       tokens.css · components.css · app.css
   js/        app.js (shell, router, actions) · views.js · settings.js · adminView.js · docs.js · dialogs.js · ui.js · store.js
   js/lib/    api · html · motion · shapes · theme · flags
+  js/vr/     the WebXR client served at /vr (vr.html, css/vr.css)
   flags/     pride flag SVGs
 ```

@@ -453,6 +453,7 @@ async function openAccountMenu(anchor) {
     <div class="menu-divider"></div>
     ${[['person', 'Profile', `/u/${state.me.handle}`], ['bookmark', 'Bookmarks', '/bookmarks'], ['list_alt', 'Lists', '/lists'], ['schedule_send', 'Scheduled posts', '/scheduled'], ['settings', 'Settings', '/settings']]
     .map(([ic, l, href]) => html`<button class="menu-item" type="button" role="menuitem" data-go="${href}">${icon(ic)}<span>${l}</span></button>`)}
+    ${XR_READY ? html`<button class="menu-item" type="button" role="menuitem" data-acct="vr">${icon('head_mounted_device')}<span>Enter VR</span></button>` : ''}
     <button class="menu-item" type="button" role="menuitem" data-acct="keys">${icon('keyboard')}<span>Keyboard shortcuts</span></button>
     ${APP_CLIENT ? html`<button class="menu-item" type="button" role="menuitem" data-acct="instance">${icon('swap_horiz')}<span>Switch instance</span></button>` : ''}
     <div class="menu-divider"></div>
@@ -474,6 +475,7 @@ async function openAccountMenu(anchor) {
     if (go) navigate(go.dataset.go);
     if (act === 'add') { history.pushState(null, '', '/'); renderAuth({ add: true }); }
     if (act === 'keys') openShortcuts();
+    if (act === 'vr') location.href = '/vr';
     if (act === 'instance') switchInstance();
     if (act === 'logout') ACTIONS.logout();
     if (act === 'logout-all') {
@@ -491,7 +493,8 @@ async function openDrawer() {
   const staff = state.me.role === 'admin' || state.me.role === 'moderator';
   const items = [['home', 'Home', '/'], ['search', 'Explore', '/explore'], ['notifications', 'Notifications', '/notifications'], ['mail', 'Messages', '/messages'],
     ['bookmark', 'Bookmarks', '/bookmarks'], ['list_alt', 'Lists', '/lists'], ['schedule_send', 'Scheduled posts', '/scheduled'],
-    ['person', 'Profile', `/u/${state.me.handle}`], ['settings', 'Settings', '/settings'], ...(staff ? [['shield_person', 'Admin', '/admin']] : [])];
+    ['person', 'Profile', `/u/${state.me.handle}`], ['settings', 'Settings', '/settings'], ...(staff ? [['shield_person', 'Admin', '/admin']] : []),
+    ...(XR_READY ? [['head_mounted_device', 'Enter VR', '/vr']] : [])];
   const wrap = el(html`<div class="drawer-wrap" role="dialog" aria-modal="true" aria-label="Navigation">
     <div class="drawer-scrim" data-close-drawer></div>
     <nav class="drawer">
@@ -733,6 +736,7 @@ document.addEventListener('click', (e) => {
   if (a) {
     const href = a.getAttribute('href');
     if (a.target === '_blank' || !href.startsWith('/') || href.startsWith('//')) return;
+    if (href === '/vr') return; // the VR client is a separate page, not a route of this app
     e.preventDefault();
     navigate(href);
     return;
@@ -885,6 +889,10 @@ const APP_CLIENT = (() => {
   } catch { return null; }
 })();
 const switchInstance = () => { if (APP_CLIENT) location.href = `${APP_CLIENT.launcher}/?switch=1`; };
+
+// Headsets (Meta Quest, Pico, Vision Pro…) and PCs with one attached get an "Enter VR" shortcut to the VR client at /vr.
+let XR_READY = /OculusBrowser|\bQuest\b|PicoBrowser|Wolvic/.test(navigator.userAgent);
+navigator.xr?.isSessionSupported('immersive-vr').then((ok) => { XR_READY ||= ok; }, () => {});
 
 const FEATURES = [
   ['auto_awesome', 'Expressive by design', 'Material 3 Expressive: springy motion, morphing shapes, bold type and a palette you pick.'],

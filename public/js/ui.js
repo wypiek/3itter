@@ -218,10 +218,10 @@ function postBody(p) {
 
 // "3itter for Android": where a post was written. Device codes come from server/locale.js.
 const CLIENT_NAMES = {
-  'android-app': 'Android', iphone: 'iPhone', ipad: 'iPad', android: 'Android Web', windows: 'Windows', mac: 'Mac',
+  'android-app': 'Android', vr: 'VR', quest: 'Meta Quest', 'vr-web': 'VR Web', iphone: 'iPhone', ipad: 'iPad', android: 'Android Web', windows: 'Windows', mac: 'Mac',
   linux: 'Linux', chromeos: 'ChromeOS', web: 'Web', api: 'API',
 };
-const CLIENT_ICONS = { 'android-app': 'android', iphone: 'phone_iphone', ipad: 'tablet_mac', android: 'smartphone', api: 'terminal' };
+const CLIENT_ICONS = { 'android-app': 'android', vr: 'head_mounted_device', quest: 'head_mounted_device', 'vr-web': 'head_mounted_device', iphone: 'phone_iphone', ipad: 'tablet_mac', android: 'smartphone', api: 'terminal' };
 export const clientLabel = (c) => (CLIENT_NAMES[c] ? t('3itter for {device}', { device: t(CLIENT_NAMES[c]) }) : '');
 const clientMeta = (p) => (CLIENT_NAMES[p.client]
   ? html` · <span class="post-client" title="${t('Posted from this device')}">${icon(CLIENT_ICONS[p.client] || 'computer', 'xs')}${clientLabel(p.client)}</span>` : '');

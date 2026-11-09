@@ -4,7 +4,8 @@
 export const LANGS = ['en', 'pl', 'de', 'es', 'fr', 'pt', 'uk', 'it', 'nl', 'tr', 'cs', 'ja'];
 
 // Device codes stored on posts and sessions. The web client renders them as "3itter for …".
-export const CLIENTS = ['android-app', 'iphone', 'ipad', 'android', 'windows', 'mac', 'linux', 'chromeos', 'web', 'api'];
+// vr: the immersive 3itter VR client (/vr). quest / vr-web: the 2D site in a headset's browser.
+export const CLIENTS = ['android-app', 'vr', 'quest', 'vr-web', 'iphone', 'ipad', 'android', 'windows', 'mac', 'linux', 'chromeos', 'web', 'api'];
 
 // Main language per country, for the languages 3itter ships. Others fall back to Accept-Language.
 const COUNTRY_LANG = {
@@ -46,12 +47,16 @@ export function detectLanguage(req) {
   return COUNTRY_LANG[countryOf(req)] || fromAcceptLanguage(req.headers['accept-language']) || 'en';
 }
 
-// Which device a request comes from. The Android app sends X-3itter-Client; everything else is read from the user agent.
+// Which device a request comes from. The Android app and the VR client send X-3itter-Client; everything else is read from the user agent.
 export function clientOf(req) {
   const declared = String(req.headers['x-3itter-client'] || '').toLowerCase();
   if (declared === 'android') return 'android-app';
+  if (declared === 'vr') return 'vr';
   const ua = String(req.headers['user-agent'] || '');
   if (!/Mozilla\//.test(ua)) return 'api';
+  // Headset browsers, before Android/Linux: Quest's UA says "Quest" and "OculusBrowser" (and Android or X11 Linux).
+  if (/OculusBrowser|\bQuest\b/.test(ua)) return 'quest';
+  if (/PicoBrowser|\bPico\b|Wolvic|Firefox Reality|Mobile VR|VIVEBrowser/.test(ua)) return 'vr-web';
   if (/iPhone|iPod/.test(ua)) return 'iphone';
   if (/iPad/.test(ua) || (/Macintosh/.test(ua) && /Mobile\//.test(ua))) return 'ipad';
   if (/Android/.test(ua)) return 'android';
@@ -63,7 +68,7 @@ export function clientOf(req) {
 }
 
 const CLIENT_NAMES = {
-  'android-app': 'Android', iphone: 'iPhone', ipad: 'iPad', android: 'Android Web', windows: 'Windows', mac: 'Mac',
+  'android-app': 'Android', vr: 'VR', quest: 'Meta Quest', 'vr-web': 'VR Web', iphone: 'iPhone', ipad: 'iPad', android: 'Android Web', windows: 'Windows', mac: 'Mac',
   linux: 'Linux', chromeos: 'ChromeOS', web: 'Web', api: 'API',
 };
 export const clientName = (c) => (c && CLIENT_NAMES[c] ? `3itter for ${CLIENT_NAMES[c]}` : null);

@@ -186,6 +186,8 @@ const server = http.createServer(async (req, res) => {
     const rss = /^\/u\/([A-Za-z0-9_]{1,15})\/rss\.xml$/.exec(pathname);
     if (rss) return rssFeed(res, rss[1]);
     if (pathname === '/' || pathname === '/index.html') return sendIndex(res, '/');
+    // The VR client is its own page (public/vr.html), not part of the single-page app.
+    if (pathname === '/vr' || pathname === '/vr/') return serveFile(res, PUBLIC_DIR, 'vr.html', false, pathname, req);
     // Link previews (signed-out requests to a post page) count as one anonymous view per visitor per day.
     const pv = /^\/p\/(\d+)$/.exec(pathname);
     if (pv && !currentSession(req)) { try { countAnonymousView(Number(pv[1]), clientIp(req)); } catch { /* unknown post */ } }

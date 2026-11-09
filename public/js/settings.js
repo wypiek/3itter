@@ -528,16 +528,17 @@ async function aboutPage() {
 
 const BROWSERS = [[/Edg\//, 'Edge'], [/OPR\/|Opera/, 'Opera'], [/SamsungBrowser/, 'Samsung Internet'], [/Firefox\//, 'Firefox'],
   [/Chrome\//, 'Chrome'], [/Safari\//, 'Safari'], [/curl/i, 'curl']];
-const SYSTEMS = [[/Windows/, 'Windows'], [/Android/, 'Android'], [/iPhone|iPod/, 'iPhone'], [/iPad/, 'iPad'], [/CrOS/, 'ChromeOS'],
+const SYSTEMS = [[/OculusBrowser|\bQuest\b/, 'Meta Quest'], [/Windows/, 'Windows'], [/Android/, 'Android'], [/iPhone|iPod/, 'iPhone'], [/iPad/, 'iPad'], [/CrOS/, 'ChromeOS'],
   [/Mac OS/, 'macOS'], [/Linux/, 'Linux']];
 
 function sessionDevice(s) {
   const ua = s.userAgent || '';
   const os = SYSTEMS.find(([re]) => re.test(ua))?.[1] || '';
   if (s.client === 'android-app') return { title: clientLabel('android-app'), sub: t('App'), icon: 'android' };
-  const browser = BROWSERS.find(([re]) => re.test(ua))?.[1] || t('Browser');
+  if (s.client === 'vr') return { title: clientLabel('vr'), sub: t('App'), icon: 'head_mounted_device' };
+  const browser = (/OculusBrowser/.test(ua) ? 'Quest Browser' : null) || BROWSERS.find(([re]) => re.test(ua))?.[1] || t('Browser');
   const mobile = /Android|iPhone|iPad|Mobile/.test(ua);
-  return { title: os ? t('{browser} on {os}', { browser, os }) : browser, sub: t('Web browser'), icon: /iPad/.test(ua) ? 'tablet_mac' : mobile ? 'smartphone' : 'computer' };
+  return { title: os ? t('{browser} on {os}', { browser, os }) : browser, sub: t('Web browser'), icon: s.client === 'quest' || s.client === 'vr-web' ? 'head_mounted_device' : /iPad/.test(ua) ? 'tablet_mac' : mobile ? 'smartphone' : 'computer' };
 }
 
 function countryName(code) {

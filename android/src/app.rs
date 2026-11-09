@@ -182,8 +182,11 @@ fn author(u: &Value) -> Author {
     }
 }
 
-const CLIENTS: [(&str, &str, &str); 10] = [
+const CLIENTS: [(&str, &str, &str); 13] = [
     ("android-app", "Android", "android"),
+    ("vr", "VR", "devices"),
+    ("quest", "Meta Quest", "devices"),
+    ("vr-web", "VR Web", "devices"),
     ("iphone", "iPhone", "phone_iphone"),
     ("ipad", "iPad", "tablet_mac"),
     ("android", "Android Web", "smartphone"),

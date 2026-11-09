@@ -1,0 +1,39 @@
+/* 3itter VR landing page. The immersive view itself is drawn on #vr-canvas (public/js/vr). */
+html, body { height: 100%; margin: 0; }
+body {
+  background: radial-gradient(120% 90% at 50% 0%, oklch(0.30 0.08 var(--h)) 0%, var(--md-surface) 60%);
+  color: var(--md-on-surface);
+  font-family: var(--md-font);
+}
+.vr-landing { min-height: 100%; display: grid; place-items: center; padding: 32px 16px; box-sizing: border-box; }
+.vr-card {
+  width: min(560px, 100%); background: var(--md-surface-container); border-radius: 32px; padding: 36px 32px 28px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.35); text-align: center;
+}
+.vr-art {
+  width: 96px; height: 96px; margin: 0 auto 12px; display: grid; place-items: center;
+  background: var(--md-primary-container); color: var(--md-on-primary-container); border-radius: 36%;
+}
+.vr-art .icon { font-size: 56px; }
+.vr-title { font: 800 40px/1.1 var(--md-font); margin: 8px 0; letter-spacing: -0.5px; }
+.vr-lead { color: var(--md-on-surface-variant); font-size: 17px; line-height: 1.5; margin: 0 0 20px; }
+.vr-sub { color: var(--md-on-surface-variant); line-height: 1.5; }
+.vr-me { display: inline-flex; align-items: center; gap: 12px; padding: 8px 18px 8px 8px; border-radius: 40px; background: var(--md-surface-container-high); margin-bottom: 20px; }
+.vr-avatar {
+  width: 44px; height: 44px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; font-weight: 700;
+  background: oklch(0.42 0.12 var(--uh, 0)); color: oklch(0.92 0.06 var(--uh, 0));
+}
+.vr-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.vr-me-names { display: flex; flex-direction: column; text-align: start; line-height: 1.25; }
+.vr-me-names span { color: var(--md-on-surface-variant); font-size: 14px; }
+.vr-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.vr-actions .btn { justify-content: center; }
+.vr-help { text-align: start; color: var(--md-on-surface-variant); font-size: 14px; line-height: 1.6; padding-inline-start: 20px; margin: 22px 0 0; }
+.vr-help b { color: var(--md-on-surface); font-weight: 600; }
+.vr-error { color: var(--md-error); min-height: 1em; }
+.vr-error:empty { display: none; }
+.vr-back { display: inline-block; margin-top: 18px; }
+#vr-canvas { display: none; }
+body.vr-preview #vr-canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: default; touch-action: none; }
+body.vr-preview .vr-landing { display: none; }
+.vr-live { color: var(--md-primary); font-weight: 600; }
