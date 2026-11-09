@@ -3,8 +3,10 @@ import { all, get, run, tx, setSetting, getSetting } from './db.js';
 import { findBlocked, isReservedHandle, reasonLabel, filterConfig, categoriesFor } from './wordfilter.js';
 import { deleteAccount } from './api.js';
 import { fail, route } from './http.js';
+import crypto from 'node:crypto';
 import {
   DOMAIN, PAGE, intParam, str, instance, audit, publicUser, loadPosts, softDeletePost, userByHandle, HANDLE_RE,
+  hashPassword, validatePassword, rateLimit,
 } from './core.js';
 import {
   listPeers, addPeer, approvePeer, removePeer, unblockPeer, outboxSize, wellKnown, publicKeyFingerprint, processOutbox,
@@ -289,6 +291,30 @@ route('POST', '/api/admin/users/:handle/rename', ({ me, params, body }) => {
   audit(me.id, 'user.rename', `@${u.handle}`, [out.handle && `handle → @${out.handle}`, out.name && 'name reset', out.bio === '' && 'bio cleared'].filter(Boolean).join(', '));
   return { user: adminUser(get('SELECT * FROM users WHERE id = :id', { id: u.id })) };
 }, STAFF);
+
+// Reset someone's password (admins only: it hands over the account). Either the admin picks one, or the server
+// generates a temporary one that is returned once and never stored or logged in clear text.
+const TEMP_ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no look-alikes (l/1, O/0)
+const tempPassword = () => Array.from({ length: 4 }, () => Array.from({ length: 4 }, () => TEMP_ALPHABET[crypto.randomInt(TEMP_ALPHABET.length)]).join('')).join('-');
+
+route('POST', '/api/admin/users/:handle/password', async ({ me, params, body }) => {
+  rateLimit(`admin-pw:${me.id}`, 30, 10 * 60_000);
+  const u = userRef(params.handle);
+  if (u.domain) fail(400, 'Remote accounts sign in on their own instance.');
+  if (u.deleted_at) fail(400, 'That account was deleted.');
+  if (u.password_hash === '!') fail(400, 'Demo accounts can’t sign in.');
+  if (u.id === me.id) fail(400, 'Change your own password in Settings → Account.');
+  const generated = body.password == null || body.password === '';
+  const password = generated ? tempPassword() : validatePassword(body.password);
+  const signOut = body.signOut !== false;
+  const hash = await hashPassword(password);
+  tx(() => {
+    run('UPDATE users SET password_hash = :h WHERE id = :id', { h: hash, id: u.id });
+    if (signOut) run('DELETE FROM sessions WHERE user_id = :id', { id: u.id });
+  });
+  audit(me.id, 'user.password_reset', `@${u.handle}`, [generated ? 'temporary password' : 'password set by admin', signOut && 'signed out everywhere'].filter(Boolean).join(', '));
+  return { ok: true, password: generated ? password : null, signedOut: signOut };
+}, ADMIN);
 
 // Everything a moderator needs about one account.
 route('GET', '/api/admin/users/:handle', ({ me, params }) => {

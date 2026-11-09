@@ -380,7 +380,7 @@ async function instanceSettings(box) {
 
 const ACTION_LABELS = {
   'user.suspend': 'Suspended', 'user.unsuspend': 'Unsuspended', 'user.verify': 'Verified', 'user.unverify': 'Verification removed',
-  'user.role': 'Role changed', 'user.rename': 'Renamed', 'user.purge_posts': 'Posts deleted', 'user.delete': 'Account deleted', 'post.delete': 'Post deleted',
+  'user.role': 'Role changed', 'user.rename': 'Renamed', 'user.password_reset': 'Password reset', 'user.purge_posts': 'Posts deleted', 'user.delete': 'Account deleted', 'post.delete': 'Post deleted',
 };
 
 async function openUserDetails(u, handlers = {}) {
@@ -449,11 +449,50 @@ function moderationItems(u, { onChange, onGone } = {}) {
       if (await confirmDialog({ title: `Reset @${u.handle}’s display name?`, body: 'It will be replaced with their handle.', confirm: 'Reset' })) rename({ resetName: true }, 'Display name reset');
     } },
     { icon: 'format_clear', label: 'Clear bio', onSelect: () => rename({ resetBio: true }, 'Bio cleared') },
+    ...(admin && u.id !== state.me.id ? [{ icon: 'password', label: 'Reset password', onSelect: () => resetPasswordDialog(u, onChange) }] : []),
     ...(admin ? [{ icon: 'person_remove', label: 'Delete account', danger: true, onSelect: async () => {
       if (!await confirmDialog({ title: `Delete @${u.handle}?`, body: 'Their posts, follows and messages are removed and the account is anonymised. The handle stays blocked if it breaks the word filter. This can’t be undone.', confirm: 'Delete account', danger: true })) return;
       try { await api(`/admin/users/${ref(u)}`, { method: 'DELETE', body: { reason: 'admin action' } }); toast(`@${u.handle} deleted`); onGone?.(); } catch (err) { toast(err.message); }
     } }] : []),
   ];
+}
+
+// Admins can reset a locked-out person's password: a generated temporary one (shown once) or one they type.
+function resetPasswordDialog(u, onChange) {
+  const box = el(html`<form novalidate>
+    <h2 class="dialog-title headline-small">Reset @${u.handle}’s password</h2>
+    <div class="dialog-body stack">
+      <p class="body-medium">For someone who can’t sign in. Their passkeys keep working. Send the new password to them privately.</p>
+      <label class="setting"><span>Generate a temporary password</span><input type="checkbox" class="switch" name="generate" checked aria-label="Generate a temporary password"></label>
+      <div class="field" data-own hidden><input name="password" type="text" maxlength="200" placeholder=" " autocomplete="off" autocapitalize="off" spellcheck="false"><label>New password</label>
+        <div class="supporting"><span>At least 8 characters</span></div></div>
+      <label class="setting"><span>Sign them out on every device</span><input type="checkbox" class="switch" name="signOut" checked aria-label="Sign them out on every device"></label>
+    </div>
+    <div class="dialog-actions"><button class="btn text" type="button" data-close>Cancel</button><button class="btn filled" type="submit">Reset password</button></div>
+  </form>`);
+  const { close } = openDialog(box, { cls: 'sm' });
+  box.generate.addEventListener('change', () => {
+    box.querySelector('[data-own]').hidden = box.generate.checked;
+    if (!box.generate.checked) box.password.focus();
+  });
+  box.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = box.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await api(`/admin/users/${ref(u)}/password`, { method: 'POST', body: { password: box.generate.checked ? null : box.password.value, signOut: box.signOut.checked } });
+      close();
+      onChange?.((await api(`/admin/users/${ref(u)}`)).user);
+      if (!r.password) { toast(r.signedOut ? `Password changed. @${u.handle} was signed out everywhere.` : 'Password changed'); return; }
+      const pw = r.password;
+      openDialog(html`<h2 class="dialog-title headline-small">Temporary password for @${u.handle}</h2>
+        <div class="dialog-body stack"><p class="body-medium">Copy it now: it won’t be shown again. They can pick their own in Settings → Account.</p>
+          <div class="dev-token" translate="no">${pw}</div></div>
+        <div class="dialog-actions"><button class="btn text" type="button" data-close>Done</button>
+          <button class="btn filled" type="button" data-copy-pw>${icon('content_copy', 'sm')}Copy</button></div>`)
+        .dlg.querySelector('[data-copy-pw]').addEventListener('click', () => navigator.clipboard?.writeText(pw).then(() => toast('Copied'), () => {}));
+    } catch (err) { toast(err.message); btn.disabled = false; }
+  });
 }
 
 function renameDialog(u, onChange) {

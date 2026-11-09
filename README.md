@@ -88,7 +88,7 @@ Admin CLI: `npm run admin -- promote|moderator|demote|verify|unverify|unsuspend 
 - **Admin panel** (`/admin`):
   - **Overview:** stats and 14-day activity charts.
   - **Reports:** a queue with dismiss / delete / suspend actions.
-  - **Users:** verify, set roles (admin / moderator), suspend, purge posts.
+  - **Users:** verify, set roles (admin / moderator), suspend, purge posts, and (admins only) **reset a password** for someone who's locked out: a generated temporary password shown once, or one you type, optionally signing them out everywhere. Resets are in the audit log; the password never is.
   - **Federation:** connect, approve, disconnect or block instances.
   - **Instance:** name, description, contact, rules, minimum age, open/closed sign-ups.
   - **Audit log.**
