@@ -263,7 +263,7 @@ route('GET', '/api/me/export', ({ me, res }) => {
     muted: all('SELECT target_id AS id FROM mutes WHERE user_id = :id', { id: me.id }).map((r) => handleOf(r.id)),
     passkeys: all('SELECT name, created_at, last_used FROM passkeys WHERE user_id = :id', { id: me.id }),
     messages: all('SELECT * FROM messages WHERE sender_id = :id OR recipient_id = :id ORDER BY id', { id: me.id }).map((m) => ({
-      with: handleOf(m.sender_id === me.id ? m.recipient_id : m.sender_id), sent: m.sender_id === me.id, text: m.text, createdAt: m.created_at,
+      with: handleOf(m.sender_id === me.id ? m.recipient_id : m.sender_id), sent: m.sender_id === me.id, text: m.text, images: msgImages(m), createdAt: m.created_at,
     })),
   };
   res.setHeader('Content-Disposition', `attachment; filename="3itter-${me.handle}-${new Date().toISOString().slice(0, 10)}.json"`);
@@ -876,13 +876,17 @@ route('GET', '/api/conversations', ({ me }) => {
         return {
           user: publicUser(other),
           unread: r.unread,
-          last: { text: m.text, createdAt: m.created_at, mine: m.sender_id === me.id },
+          last: { text: m.text, images: msgImages(m).length, createdAt: m.created_at, mine: m.sender_id === me.id },
         };
       }).filter(Boolean),
   };
 });
 
-const msgOut = (m, me) => ({ id: m.id, text: m.text, createdAt: m.created_at, mine: m.sender_id === me.id, read: !!m.read });
+function msgImages(m) {
+  if (!m.images) return [];
+  try { return JSON.parse(m.images); } catch { return []; }
+}
+const msgOut = (m, me) => ({ id: m.id, text: m.text, images: msgImages(m), createdAt: m.created_at, mine: m.sender_id === me.id, read: !!m.read });
 
 function canMessage(me, u) {
   if (u.id === me.id) return 'You can’t message yourself.';
@@ -921,11 +925,15 @@ route('POST', '/api/conversations/:handle', async ({ me, params, body }) => {
   const u = await resolveUser(params.handle, me);
   const reason = canMessage(me, u);
   if (reason) fail(403, reason);
-  const text = str(body.text, { name: 'Message', min: 1, max: MAX_MSG_LEN });
-  const r = run('INSERT INTO messages (sender_id, recipient_id, text, read, created_at) VALUES (:me, :id, :text, :read, :t)',
-    { me: me.id, id: u.id, text, read: u.domain ? 1 : 0, t: Date.now() });
-  federateMessage(me, u, text);
-  if (!u.domain) publishMessage(u.id, me.id, text);
+  const text = str(body.text, { name: 'Message', max: MAX_MSG_LEN });
+  const raw = Array.isArray(body.images) ? body.images : [];
+  if (raw.length > MAX_IMAGES) fail(400, `You can attach up to ${MAX_IMAGES} images.`);
+  if (!text && !raw.length) fail(400, 'Message is required.');
+  const images = raw.map((img) => ({ src: saveImage(img?.data), alt: str(img?.alt, { name: 'Image description', max: 1000 }) }));
+  const r = run('INSERT INTO messages (sender_id, recipient_id, text, images, read, created_at) VALUES (:me, :id, :text, :images, :read, :t)',
+    { me: me.id, id: u.id, text, images: images.length ? JSON.stringify(images) : null, read: u.domain ? 1 : 0, t: Date.now() });
+  federateMessage(me, u, text, images);
+  if (!u.domain) publishMessage(u.id, me.id, text, images.length);
   return { message: msgOut(get('SELECT * FROM messages WHERE id = :id', { id: Number(r.lastInsertRowid) }), me) };
 });
 

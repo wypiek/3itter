@@ -439,12 +439,19 @@ const HANDLERS = {
     const actor = await upsertRemoteUser(a.actor, peer);
     const to = localUserByHandle(a.object?.to);
     const text = s(a.object?.text, MAX_MSG_LEN);
-    if (!to || !text || isBlockedBetween(actor.id, to.id)) return;
+    const raw = Array.isArray(a.object?.images) ? a.object.images.slice(0, MAX_IMAGES) : [];
+    if (!to || (!text && !raw.length) || isBlockedBetween(actor.id, to.id)) return;
     if (to.dm_policy === 'none') return;
     if (to.dm_policy === 'following' && !get('SELECT 1 AS x FROM follows WHERE follower_id = :a AND followee_id = :b', { a: to.id, b: actor.id })) return;
-    run('INSERT INTO messages (sender_id, recipient_id, text, created_at) VALUES (:a, :b, :text, :t)',
-      { a: actor.id, b: to.id, text, t: Date.now() });
-    publishMessage(to.id, actor.id, text);
+    const images = [];
+    for (const img of raw) {
+      const src = await cacheRemoteImage(img?.src, peer);
+      if (src) images.push({ src, alt: s(img?.alt, 1000) });
+    }
+    if (!text && !images.length) return;
+    run('INSERT INTO messages (sender_id, recipient_id, text, images, created_at) VALUES (:a, :b, :text, :images, :t)',
+      { a: actor.id, b: to.id, text, images: images.length ? JSON.stringify(images) : null, t: Date.now() });
+    publishMessage(to.id, actor.id, text, images.length);
   },
 };
 
@@ -688,9 +695,10 @@ export function federateUserDelete(user, domains) {
 
 export const followerDomainsOf = followerDomains;
 
-export function federateMessage(me, recipient, text) {
+export function federateMessage(me, recipient, text, images = []) {
   if (!recipient.domain) return;
-  enqueue([recipient.domain], activity('message', { to: recipient.handle.split('@')[0], text }, userObject(me)));
+  const imgs = images.map((i) => ({ src: absUrl(i.src), alt: i.alt }));
+  enqueue([recipient.domain], activity('message', { to: recipient.handle.split('@')[0], text, ...(imgs.length ? { images: imgs } : {}) }, userObject(me)));
 }
 
 // Coalesced count broadcasts for our own posts.

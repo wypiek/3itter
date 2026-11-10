@@ -188,7 +188,7 @@ function connectStream() {
     emit('realtime:message', m);
     const handle = m.from?.handle || '';
     if (location.pathname.toLowerCase() === `/messages/${handle}`.toLowerCase()) return;
-    announce({ title: tr('New message from {name}', { name: m.from?.name || handle }), body: m.text, href: `/messages/${handle}`, tag: `3itter-m-${handle}` });
+    announce({ title: tr('New message from {name}', { name: m.from?.name || handle }), body: m.text || (m.images ? tr('Sent a photo') : ''), href: `/messages/${handle}`, tag: `3itter-m-${handle}` });
   });
   stream.addEventListener('error', () => {
     // EventSource reconnects by itself; if the server refuses (signed out), stop.

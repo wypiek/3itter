@@ -506,10 +506,10 @@ export function notify(userId, actorId, type, postId = null) {
 }
 
 // Tell a user's open streams that someone sent them a message.
-export function publishMessage(recipientId, senderId, text) {
+export function publishMessage(recipientId, senderId, text, images = 0) {
   publish(recipientId, 'message', () => {
     const a = get('SELECT id, handle, name, avatar, hue, domain FROM users WHERE id = :id', { id: senderId });
-    return { from: a && { id: a.id, handle: a.handle, name: a.name, avatar: a.avatar, hue: a.hue, domain: a.domain }, text: String(text).slice(0, 280), createdAt: Date.now() };
+    return { from: a && { id: a.id, handle: a.handle, name: a.name, avatar: a.avatar, hue: a.hue, domain: a.domain }, text: String(text).slice(0, 280), images, createdAt: Date.now() };
   });
 }
 

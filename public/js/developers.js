@@ -21,7 +21,7 @@ const ENDPOINTS = [
   ['POST', '/api/media/video', 'write', 'Upload a video: the raw file as the body, Content-Type video/mp4, webm or quicktime. Returns { video: { id } }'],
   ['POST', '/api/scheduled', 'write', 'Schedule a post: the same body as /api/posts plus publishAt (ms since 1970)'],
   ['GET', '/api/conversations', 'messages', 'Direct message conversations'],
-  ['POST', '/api/conversations/:handle', 'messages', 'Send a direct message. Body: { text }'],
+  ['POST', '/api/conversations/:handle', 'messages', 'Send a direct message. Body: { text, images?: [{ data, alt }] } (up to 4 base64 data URLs; text can be empty when images are attached)'],
   ['GET', '/api/stream', 'read', 'Realtime events (Server-Sent Events): notification, message, badges'],
 ];
 

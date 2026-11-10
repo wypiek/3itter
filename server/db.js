@@ -343,6 +343,7 @@ addColumn('posts', 'fed_likes', 'INTEGER');
 addColumn('posts', 'fed_reposts', 'INTEGER');
 addColumn('posts', 'fed_replies', 'INTEGER');
 addColumn('posts', 'images', 'TEXT');                                   // JSON [{src, alt}], up to 4
+addColumn('messages', 'images', 'TEXT');                                // JSON [{src, alt}], up to 4
 addColumn('posts', 'sensitive', 'INTEGER NOT NULL DEFAULT 0');          // blur media until tapped
 addColumn('posts', 'cw', "TEXT NOT NULL DEFAULT ''");                   // content warning text
 addColumn('posts', 'edited_at', 'INTEGER');

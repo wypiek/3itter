@@ -5,7 +5,7 @@ import { api } from './lib/api.js';
 import { state, on, emit } from './store.js';
 import {
   icon, avatar, postCard, mainPost, userRow, followBtn, richText, relTime, compact, topBar, infiniteList,
-  emptyState, loader, toast, nameOf, staffBadge, remoteChip, flagRow, confirmDialog, openPopover,
+  emptyState, loader, toast, nameOf, staffBadge, remoteChip, flagRow, confirmDialog, openPopover, lightbox, prepareImage,
 } from './ui.js';
 import { composer, openNewMessage } from './dialogs.js';
 
@@ -274,7 +274,7 @@ export function messagesView() {
         ${avatar(c.user, 'md', { link: false })}
         <div class="li-text">
           <div class="conv-top"><span class="li-head">${nameOf(c.user)}</span><span class="post-handle">@${c.user.handle} · ${relTime(c.last.createdAt)}</span></div>
-          <div class="li-sub conv-last">${c.last.mine ? 'You: ' : ''}<span translate="no">${c.last.text}</span></div>
+          <div class="li-sub conv-last">${c.last.mine ? 'You: ' : ''}${c.last.text ? html`<span translate="no">${c.last.text}</span>` : c.last.images ? html`<span class="conv-photo">${icon('image', 'xs')}${c.last.images > 1 ? `${c.last.images} photos` : 'Photo'}</span>` : ''}</div>
         </div>
         ${c.unread ? html`<span class="unread-dot" aria-label="${c.unread} unread"></span>` : ''}
       </a>`)}</div>`);
@@ -289,7 +289,7 @@ function renderBubbles(msgs) {
   return msgs.map((m, i) => {
     const gp = same(msgs[i - 1], m); const gn = same(m, msgs[i + 1]);
     return html`<div class="bubble-row${m.mine ? ' mine' : ''}${gp ? ' gp' : ''}${gn ? ' gn' : ''}">
-      <div class="bubble-line">${m.mine ? html`<button class="icon-btn sm bubble-del" type="button" data-del="${m.id}" aria-label="Delete message">${icon('delete', 'sm')}</button>` : ''}<div class="bubble">${richText(m.text)}</div></div>
+      <div class="bubble-line">${m.mine ? html`<button class="icon-btn sm bubble-del" type="button" data-del="${m.id}" aria-label="Delete message">${icon('delete', 'sm')}</button>` : ''}<div class="bubble${m.images?.length ? ' has-media' : ''}${m.text ? '' : ' media-only'}">${m.images?.length ? html`<div class="bubble-media n${m.images.length}">${m.images.map((im, j) => html`<button class="bubble-img" type="button" data-img="${m.id}" data-index="${j}" aria-label="${im.alt || 'View image'}"><img src="${im.src}" alt="${im.alt}" loading="lazy"></button>`)}</div>` : ''}${m.text ? html`<div class="bubble-text">${richText(m.text)}</div>` : ''}</div></div>
       ${gn && m !== lastMine ? '' : html`<div class="bubble-time">${relTime(m.createdAt)}${m === lastMine && m.read ? html` · <span class="seen">${icon('done_all', 'xs')}Seen</span>` : ''}</div>`}
     </div>`;
   });
@@ -305,6 +305,9 @@ export async function threadView({ handle }) {
     <div class="thread" aria-live="polite"></div>
     ${data.blockedReason ? html`<p class="thread-blocked">${icon('block', 'sm')}${data.blockedReason}</p>` : ''}
     <form class="thread-composer" ${data.blockedReason ? html`hidden` : ''}>
+      <div class="msg-attachments" hidden></div>
+      <input type="file" name="files" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+      <button class="icon-btn md" type="button" data-attach aria-label="Add image">${icon('image')}</button>
       <label class="search-bar msg-input"><input name="text" maxlength="2000" placeholder="Message @${u.handle}" aria-label="Message" autocomplete="off"></label>
       <button class="icon-btn filled md" type="submit" aria-label="Send">${icon('send', 'filled')}</button>
     </form>
@@ -337,6 +340,12 @@ export async function threadView({ handle }) {
   });
 
   thread.addEventListener('click', async (e) => {
+    const img = e.target.closest('[data-img]');
+    if (img) {
+      const m = msgs.find((x) => String(x.id) === img.dataset.img);
+      if (m) lightbox(m.images, Number(img.dataset.index) || 0);
+      return;
+    }
     const del = e.target.closest('[data-del]');
     if (!del) return;
     if (!await confirmDialog({ title: 'Delete message?', body: u.domain ? 'It will be removed here. A copy may remain on their instance.' : 'It will be removed for both of you.', confirm: 'Delete', danger: true })) return;
@@ -348,16 +357,47 @@ export async function threadView({ handle }) {
     } catch (err) { toast(err.message); }
   });
   const form = root.querySelector('form');
+  const tray = form.querySelector('.msg-attachments');
+  let pending = [];
+  let sending = false;
+  const drawTray = () => {
+    tray.hidden = !pending.length;
+    tray.innerHTML = String(html`${pending.map((p, i) => html`<div class="msg-att"><img src="${p.data}" alt="">
+      <button class="icon-btn scrim sm" type="button" data-unattach="${i}" aria-label="Remove image">${icon('close', 'sm')}</button></div>`)}`);
+  };
+  const addFiles = async (files) => {
+    for (const f of [...files]) {
+      if (pending.length >= 4) { toast('You can add up to 4 images.'); break; }
+      if (!f.type.startsWith('image/')) continue;
+      try { pending.push({ data: await prepareImage(f), alt: '' }); } catch (err) { toast(err.message); }
+    }
+    drawTray();
+  };
+  form.addEventListener('click', (e) => {
+    if (e.target.closest('[data-attach]')) form.files.click();
+    const rm = e.target.closest('[data-unattach]');
+    if (rm) { pending.splice(Number(rm.dataset.unattach), 1); drawTray(); }
+  });
+  form.files.addEventListener('change', () => { addFiles(form.files.files); form.files.value = ''; });
+  form.text.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = form.text.value.trim();
-    if (!text) return;
+    if ((!text && !pending.length) || sending) return;
+    const images = pending;
+    sending = true;
     form.text.value = '';
+    pending = [];
+    drawTray();
     try {
-      const { message } = await api(`/conversations/${encodeURIComponent(u.handle)}`, { method: 'POST', body: { text } });
+      const { message } = await api(`/conversations/${encodeURIComponent(u.handle)}`, { method: 'POST', body: { text, images } });
       if (!msgs.some((x) => x.id === message.id)) msgs.push(message);
       draw(true);
-    } catch (err) { toast(err.message); form.text.value = text; }
+    } catch (err) { toast(err.message); form.text.value = text; pending = images; drawTray(); }
+    sending = false;
   });
   if (!data.blockedReason) requestAnimationFrame(() => form.text.focus({ preventScroll: true }));
   return {
@@ -407,8 +447,9 @@ function profileHeader(u, tab) {
         </div>
       </div>
       ${u.suspended ? html`<p class="profile-alert">${icon('block', 'sm')}This account is suspended. Only staff can see it.</p>` : ''}
-      <h2 class="profile-name headline-medium emph">${nameOf(u)} ${staffBadge(u.staff)}${u.org ? html`<span class="tag org-tag">${icon('apartment', 'xs')}Organization</span>` : ''}</h2>
+      <h2 class="profile-name headline-medium emph">${nameOf(u)} ${staffBadge(u.staff)}</h2>
       <div class="profile-handle"><span class="post-handle">@${u.handle}</span>
+        ${u.org ? html`<span class="tag org-tag">${icon('apartment', 'xs')}Organization</span>` : ''}
         ${u.pronouns ? html`<span class="pronouns" translate="no">${u.pronouns}</span>` : ''}
         ${u.followsYou ? html`<span class="tag">Follows you</span>` : ''}${u.isMuted ? html`<span class="tag">Muted</span>` : ''}
         ${remoteChip(u)}</div>
