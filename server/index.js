@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { all, get, run, UPLOAD_DIR, getSetting, setSetting } from './db.js';
 import { HttpError, fail, json, send, readBody, routes, SECURITY_HEADERS } from './http.js';
-import { HOST, PORT, PUBLIC_URL, DOMAIN, ADMIN_HANDLE, currentSession, isStaff, rateLimit, clientIp, localUserByHandle, instance, postImages, absUrl } from './core.js';
+import { HOST, PORT, PUBLIC_URL, DOMAIN, ADMIN_HANDLE, currentSession, browserAccounts, isStaff, rateLimit, clientIp, localUserByHandle, instance, postImages, absUrl } from './core.js';
 import { wellKnown, handleInbox, authenticatePeerGet, fedUserPayload, startFederationWorkers } from './federation.js';
 import { seed } from './seed.js';
 import { sendIndex, oembed, mastodonStatus, activityNote } from './embeds.js';
@@ -22,15 +22,29 @@ import { versionedAsset, staticPage } from './assets.js';
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
+// The composer can post as another account that is signed in on the same browser. Its writing
+// requests carry X-3itter-Author: <id>; the id is validated against this browser's own sessions,
+// so it grants nothing beyond switching accounts, while the active session stays untouched.
+// API tokens are scoped to their own account and can't use the override.
+const AUTHOR_OVERRIDE_ROUTES = new Set(['POST /api/posts', 'POST /api/scheduled', 'POST /api/media/video']);
+function authorOverride(req, me, bearer, method, pathname) {
+  if (!me || bearer || !AUTHOR_OVERRIDE_ROUTES.has(`${method} ${pathname}`)) return me;
+  const id = req.headers['x-3itter-author'];
+  if (id === undefined || id === '') return me;
+  const account = browserAccounts(req).find((a) => a.user.id === Number(id));
+  if (!account) fail(403, 'That account isn’t signed in on this browser any more.');
+  return account.user;
+}
+
 // Raw video upload: the body is the file itself, so it skips the JSON parser.
-async function handleVideoUpload(req, res, bearer) {
+async function handleVideoUpload(req, res, bearer, pathname) {
   const origin = req.headers.origin;
   if (origin && !bearer) {
     let host;
     try { host = new URL(origin).host; } catch { fail(403, 'Bad origin.'); }
     if (host !== req.headers.host) fail(403, 'Cross-origin request blocked.');
   }
-  const me = bearer?.user || currentSession(req)?.user;
+  const me = authorOverride(req, bearer?.user || currentSession(req)?.user, bearer, req.method, pathname);
   if (!me) fail(401, 'Please sign in.');
   json(res, 200, await receiveVideo(req, me));
 }
@@ -40,7 +54,7 @@ async function handleApi(req, res, url) {
   // Bots and scripts: Authorization: Bearer 3tt_… (personal API tokens, see orgs.js).
   const bearer = tokenAuth(req);
   if (bearer) checkTokenAccess(bearer, req.method, url.pathname);
-  if (url.pathname === '/api/media/video' && req.method === 'POST') return handleVideoUpload(req, res, bearer);
+  if (url.pathname === '/api/media/video' && req.method === 'POST') return handleVideoUpload(req, res, bearer, url.pathname);
   if (url.pathname === '/api/stream' && req.method === 'GET') {
     const me = bearer?.user || currentSession(req)?.user;
     if (!me) fail(401, 'Please sign in.');
@@ -74,7 +88,7 @@ async function handleApi(req, res, url) {
   if (r.auth === 'staff' && !isStaff(me)) fail(403, 'Staff only.');
   if (r.auth === 'admin' && me.role !== 'admin') fail(403, 'Admins only.');
   const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
-  const result = await r.handler({ req, res, me, session, params, query: url.searchParams, body });
+  const result = await r.handler({ req, res, me: authorOverride(req, me, bearer, req.method, url.pathname), session, params, query: url.searchParams, body });
   json(res, 200, result);
 }
 

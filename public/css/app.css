@@ -112,7 +112,7 @@ h1, h2, h3, p { margin: 0; }
 .topbar-sub { font: 400 13px/18px var(--md-font); color: var(--md-on-surface-variant); }
 .topbar-actions { display: flex; gap: 4px; }
 .topbar-extra { padding: 4px 0 4px; }
-.topbar-extra .btn-group { max-width: 420px; }
+/*.topbar-extra .btn-group { max-width: 420px; }*/
 .topbar .tabs { margin-top: 4px; border-bottom: 0; }
 .topbar-avatar { display: none; padding: 0; border: 0; background: none; cursor: pointer; margin-inline-start: 4px; }
 .thread-user { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
@@ -147,6 +147,11 @@ a.avatar:hover { filter: brightness(0.95); }
 .composer .wavy-progress { position: absolute; inset: 0 0 auto 0; }
 .composer-grid { display: grid; grid-template-columns: 48px 1fr; gap: 12px; }
 .composer-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.composer-avatar { position: relative; display: grid; place-items: center; flex: none; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; transition: var(--t-shape), var(--t-color); }
+.composer-avatar:hover { transform: scale(1.05); }
+.composer-avatar:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+.composer-swap { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--md-primary); color: var(--md-on-primary); }
+.composer-swap .icon { font-size: 14px; font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 20; }
 .composer-input {
   width: 100%; min-height: 48px; max-height: 50dvh; padding: 10px 0 4px; border: 0; outline: none; resize: none;
   background: transparent; color: var(--md-on-surface); font: 400 20px/28px var(--md-font);
@@ -1218,6 +1223,7 @@ body.drawer-open { overflow: hidden; }
 .cv-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgb(0 0 0 / .35); }
 .cv-progress span { display: block; height: 100%; width: 0; background: var(--md-primary); border-radius: 0 3px 3px 0; transition: width .2s linear; }
 .cv-status { position: absolute; left: 12px; bottom: 14px; padding: 4px 10px; border-radius: 10px; background: rgb(0 0 0 / .6); color: #fff; }
+.cv-retry { position: absolute; right: 12px; bottom: 12px; }
 .cv-alt { width: 100%; }
 
 .cropper-dialog { width: min(560px, 100vw); }

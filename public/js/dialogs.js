@@ -28,7 +28,9 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
   const form = el(html`<form class="composer ${cls}" novalidate>
     ${wavyProgress()}
     <div class="composer-grid">
-      <div class="post-side">${avatar(state.me, 'md', { link: false })}</div>
+      <div class="post-side">
+        <button type="button" class="composer-avatar" aria-label="Choose the account to post as"></button>
+      </div>
       <div class="composer-main">
         <label class="cw-input" hidden>${icon('warning', 'sm')}<input maxlength="100" placeholder="Content warning, e.g. spoilers for the finale" aria-label="Content warning"></label>
         <div class="composer-field">
@@ -94,7 +96,8 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
   const counter = $('.counter');
   const progress = $('.wavy-progress');
   const ac = $('.ac-pop');
-  const st = { images: [], video: null, sensitive: false, cw: false, poll: null, policy: 'everyone', busy: false, scheduleAt: null, thread: [] };
+  const avatarBtn = $('.composer-avatar');
+  const st = { images: [], video: null, sensitive: false, cw: false, poll: null, policy: 'everyone', busy: false, scheduleAt: null, thread: [], postAs: null };
   const threadBox = $('.thread-extra');
   const scheduleChip = $('.schedule-chip');
 
@@ -156,6 +159,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
         <button type="button" class="icon-btn sm scrim ci-remove" data-c="remove-video" aria-label="Remove video">${icon('close', 'sm')}</button>
         <div class="cv-progress"><span></span></div>
         <div class="cv-status title-small"></div>
+        <button type="button" class="btn tonal xs cv-retry" data-c="retry-video" hidden>Retry upload</button>
       </div>
       <input class="ci-alt cv-alt" maxlength="1000" placeholder="Describe this video" aria-label="Video description (alt text)">`);
       grabPoster(videoBox.querySelector('video'));
@@ -165,6 +169,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     videoBox.querySelector('.cv-progress').hidden = !!v.id;
     videoBox.querySelector('.cv-status').textContent = v.error || (v.id ? '' : `${t('Uploading video…')} ${pct}%`);
     videoBox.querySelector('.cv-status').hidden = !v.error && !!v.id;
+    videoBox.querySelector('.cv-retry').hidden = !v.error || !!v.id;
     update();
   };
 
@@ -185,6 +190,31 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     }, { once: true });
   };
 
+  // Uploads v.file to /api/media/video and resolves `true` once it's stored (false on failure).
+  // The video's media row belongs to the uploading account, so when the composer posts as another
+  // signed-in account the request carries its id; `ownerId` records which account stored it.
+  const uploadVideo = (v) => new Promise((resolve) => {
+    const author = st.postAs?.id ?? state.me.id;
+    const xhr = new XMLHttpRequest();
+    v.xhr = xhr;
+    xhr.open('POST', '/api/media/video');
+    xhr.setRequestHeader('Content-Type', v.file.type);
+    if (author !== state.me.id) xhr.setRequestHeader('X-3itter-Author', String(author));
+    try { const c = localStorage.getItem('3itter-client'); if (c) xhr.setRequestHeader('X-3itter-Client', c); } catch { /* ignore */ }
+    const finish = (ok) => { drawVideo(); resolve(ok); };
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && st.video === v) { v.progress = e.loaded / e.total; drawVideo(); } };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300 && data.video) { v.id = data.video.id; v.error = null; v.ownerId = author; }
+      else v.error = data.error || t('Upload failed. Try again.');
+      finish(!!v.id);
+    };
+    xhr.onerror = () => { if (st.video === v) v.error = t('Upload failed. Try again.'); finish(false); };
+    xhr.onabort = () => finish(false);
+    xhr.send(v.file);
+  });
+
   const setVideo = (f) => {
     if (!/^video\/(mp4|webm|quicktime)$/.test(f.type)) return toast(t('Videos must be MP4, WebM or MOV.'));
     const maxMb = state.instance?.maxVideoMb || 50;
@@ -193,22 +223,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     const v = { file: f, url: URL.createObjectURL(f), progress: 0, id: null, poster: null, alt: '' };
     st.video = v;
     drawVideo();
-    const xhr = new XMLHttpRequest();
-    v.xhr = xhr;
-    xhr.open('POST', '/api/media/video');
-    xhr.setRequestHeader('Content-Type', f.type);
-    try { const c = localStorage.getItem('3itter-client'); if (c) xhr.setRequestHeader('X-3itter-Client', c); } catch { /* ignore */ }
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable && st.video === v) { v.progress = e.loaded / e.total; drawVideo(); } };
-    xhr.onload = () => {
-      if (st.video !== v) return;
-      let data = {};
-      try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
-      if (xhr.status >= 200 && xhr.status < 300 && data.video) { v.id = data.video.id; v.error = null; }
-      else v.error = data.error || t('Upload failed. Try again.');
-      drawVideo();
-    };
-    xhr.onerror = () => { if (st.video === v) { v.error = t('Upload failed. Try again.'); drawVideo(); } };
-    xhr.send(f);
+    uploadVideo(v);
   };
 
   const clearVideo = () => {
@@ -219,6 +234,50 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     videoBox.innerHTML = '';
     drawVideo();
   };
+
+  // A failed upload keeps the file attached; re-send it without making people pick it again.
+  const retryVideo = () => {
+    const v = st.video;
+    if (!v || v.id || !v.error) return;
+    v.error = null; v.progress = 0;
+    drawVideo();
+    uploadVideo(v);
+  };
+
+  // ------------------------------------------------ post as another account
+  // The avatar button picks one of the accounts signed in on this browser. Writing requests from
+  // this composer carry the chosen account's id, which the server checks against those sessions;
+  // the browser's active session is never switched.
+  const drawAvatar = () => {
+    const a = st.postAs || state.me;
+    avatarBtn.innerHTML = String(html`${avatar(a, 'md', { link: false })}${st.postAs ? html`<span class="composer-swap" aria-hidden="true">${icon('swap_horiz', 'sm')}</span>` : ''}`);
+    const label = st.postAs ? `Posting as @${a.handle}. Choose account` : 'Choose the account to post as';
+    avatarBtn.title = label;
+    avatarBtn.setAttribute('aria-label', label);
+  };
+
+  const postAsPicker = async () => {
+    let accounts;
+    try { ({ accounts } = await api('/accounts')); } catch { return; }
+    if (!accounts?.some((a) => a.id !== state.me.id)) return toast('Sign in to another account first to post as it.');
+    const chosen = (st.postAs || state.me).id;
+    const box = el(html`<div class="account-menu" role="menu">
+      <div class="am-accounts">${accounts.map((a) => html`<button type="button" class="am-account${a.id === chosen ? ' active' : ''}" role="menuitem" data-as="${a.id}" ${a.id === chosen ? html`aria-current="true"` : ''}>
+        ${avatar(a, 'sm', { link: false })}<span class="am-names"><span class="am-name">${nameOf(a)}</span><span class="am-handle">@${a.handle}</span></span>
+        ${a.id === chosen ? icon('check_circle', 'filled am-check') : ''}</button>`)}</div>
+    </div>`);
+    box.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-as]');
+      if (!b) return;
+      closePopover();
+      const acc = accounts.find((a) => a.id === Number(b.dataset.as));
+      st.postAs = acc && acc.id !== state.me.id ? acc : null;
+      drawAvatar();
+    });
+    openPopover(avatarBtn, box, { align: 'start' });
+  };
+
+  avatarBtn.addEventListener('click', () => { if (!st.busy) postAsPicker(); });
 
   const addFiles = async (files) => {
     const vid = [...files].find((f) => f.type.startsWith('video/'));
@@ -333,6 +392,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     if (c === 'image') file.click();
     if (c === 'video') videoFile.click();
     if (c === 'remove-video') { clearVideo(); st.sensitive = false; pressed('sensitive', false); }
+    if (c === 'retry-video') retryVideo();
     if (c === 'remove-image') { st.images.splice(Number(btn.dataset.i), 1); if (!st.images.length) { st.sensitive = false; pressed('sensitive', false); } drawImages(); }
     if (c === 'sensitive') { st.sensitive = !st.sensitive; pressed('sensitive', st.sensitive); toast(st.sensitive ? 'Images will be blurred until tapped' : 'Images won’t be blurred'); }
     if (c === 'cw') {
@@ -421,6 +481,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
 
   const reset = () => {
     ta.value = '';
+    st.postAs = null; drawAvatar();
     st.thread = []; drawThread();
     if (st.scheduleAt) setSchedule(null);
     clearTimeout(draftTimer);
@@ -436,7 +497,14 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     e.preventDefault();
     if (submit.disabled) return;
     st.busy = true; progress.hidden = false; update();
+    const asId = st.postAs?.id ?? null;
     try {
+      // The video may have been uploaded before another account was chosen: upload it again as the author.
+      const v = st.video;
+      if (v && v.ownerId !== (asId ?? state.me.id)) {
+        v.id = null; v.error = null; v.progress = 0;
+        if (!await uploadVideo(v)) throw new Error(v.error || 'Video upload failed. Try again.');
+      }
       const body = {
         text: ta.value,
         images: st.images.length ? st.images.map((im) => ({ data: im.data, alt: im.alt })) : undefined,
@@ -448,7 +516,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
         replyTo: replyTo?.id, quoteOf: quote?.id,
       };
       if (st.scheduleAt) {
-        const { scheduled } = await api('/scheduled', { method: 'POST', body: { ...body, publishAt: st.scheduleAt } });
+        const { scheduled } = await api('/scheduled', { method: 'POST', body: { ...body, publishAt: st.scheduleAt }, author: asId });
         reset();
         toast(`Scheduled for ${new Date(scheduled.publishAt).toLocaleString(locale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
           { action: 'View', onAction: () => emit('navigate', '/scheduled') });
@@ -458,6 +526,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
       const extra = st.thread.map((t) => t.trim()).filter(Boolean);
       const { post } = await api('/posts', {
         method: 'POST',
+        author: asId,
         body: {
           text: ta.value,
           images: st.images.length ? st.images.map((im) => ({ data: im.data, alt: im.alt })) : undefined,
@@ -474,7 +543,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
       let prev = post;
       for (const text of extra) {
         try {
-          const { post: next } = await api('/posts', { method: 'POST', body: { text, replyTo: prev.id, replyPolicy: st.policy } });
+          const { post: next } = await api('/posts', { method: 'POST', author: asId, body: { text, replyTo: prev.id, replyPolicy: st.policy } });
           emit('post:created', next);
           prev = next;
         } catch (e) { toast(`Part of the thread wasn’t posted: ${e.message}`); break; }
@@ -493,6 +562,7 @@ export function composer({ replyTo = null, quote = null, onPosted, autofocus = f
     if (draft) { ta.value = draft; form.classList.add('has-draft'); }
   } catch { /* storage unavailable */ }
   if (autofocus) requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; });
+  drawAvatar();
   update();
   return form;
 }
