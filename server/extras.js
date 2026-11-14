@@ -179,7 +179,7 @@ function publishScheduled(s) {
   try {
     // A quoted post may have been deleted meanwhile: publish without the quote instead of failing.
     if (payload.quoteOf && !get('SELECT 1 AS x FROM posts WHERE id = :id AND deleted = 0', { id: payload.quoteOf })) payload.quoteOf = null;
-    const prepared = preparePost(author, payload, { allowReply: false });
+    const prepared = preparePost(author, payload, { allowReply: false, stored: true });
     const id = insertPost(author, { ...prepared, client: payload.client });
     run(`UPDATE scheduled_posts SET status = 'published', post_id = :p, error = NULL WHERE id = :id`, { p: id, id: s.id });
     return id;

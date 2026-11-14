@@ -44,7 +44,7 @@ async function handleApi(req, res, url) {
   if (url.pathname === '/api/stream' && req.method === 'GET') {
     const me = bearer?.user || currentSession(req)?.user;
     if (!me) fail(401, 'Please sign in.');
-    return openStream(req, res, me.id);
+    return openStream(req, res, me.id, { messages: !bearer || bearer.scopes.includes('messages') });
   }
   const match = routes.map((r) => ({ r, m: r.method === req.method && r.re.exec(url.pathname) })).find((x) => x.m);
   if (!match) {

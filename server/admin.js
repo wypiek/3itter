@@ -311,6 +311,9 @@ route('POST', '/api/admin/users/:handle/password', async ({ me, params, body }) 
   tx(() => {
     run('UPDATE users SET password_hash = :h WHERE id = :id', { h: hash, id: u.id });
     if (signOut) run('DELETE FROM sessions WHERE user_id = :id', { id: u.id });
+    // a reset hands the account over: nothing made under the old password keeps working
+    run('DELETE FROM api_tokens WHERE user_id = :id', { id: u.id });
+    run('DELETE FROM passkeys WHERE user_id = :id', { id: u.id });
   });
   audit(me.id, 'user.password_reset', `@${u.handle}`, [generated ? 'temporary password' : 'password set by admin', signOut && 'signed out everywhere'].filter(Boolean).join(', '));
   return { ok: true, password: generated ? password : null, signedOut: signOut };

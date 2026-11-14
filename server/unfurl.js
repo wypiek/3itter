@@ -27,7 +27,12 @@ function privateAddress(ip) {
       || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
   const v = ip.toLowerCase();
+  // IPv4-mapped, dotted (::ffff:127.0.0.1) or as the URL parser writes it (::ffff:7f00:1)
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v);
+  if (mapped) { const hi = parseInt(mapped[1], 16); const lo = parseInt(mapped[2], 16); return privateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`); }
   if (v.startsWith('::ffff:')) return privateAddress(v.slice(7));
+  // nothing else under ::/8 is a public address (unspecified, loopback, IPv4-compatible); 64:ff9b::/96 is NAT64
+  if (v.startsWith('::') || v.startsWith('64:ff9b:')) return true;
   return v === '::' || v === '::1' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe8') || v.startsWith('fe9')
     || v.startsWith('fea') || v.startsWith('feb') || v.startsWith('ff');
 }
@@ -48,7 +53,9 @@ function fetchOnce(url, { accept, limit }) {
     const u = new URL(url);
     if (!['http:', 'https:'].includes(u.protocol)) return reject(new Error('Bad protocol'));
     if (u.port && !['80', '443'].includes(u.port)) return reject(new Error('Bad port'));
-    if (net.isIP(u.hostname) && privateAddress(u.hostname)) return reject(new Error('Blocked address'));
+    // an IPv6 literal keeps its brackets in URL.hostname; Node connects to literals without calling `lookup`
+    const literal = u.hostname.replace(/^\[|\]$/g, '');
+    if (net.isIP(literal) && privateAddress(literal)) return reject(new Error('Blocked address'));
     const lib = u.protocol === 'https:' ? https : http;
     const req = lib.get(u, {
       lookup: safeLookup,

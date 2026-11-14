@@ -220,6 +220,8 @@ route('POST', '/api/me/password', async ({ me, body, session }) => {
   const next = validatePassword(body.next);
   run('UPDATE users SET password_hash = :h WHERE id = :id', { h: await hashPassword(next), id: me.id });
   run('DELETE FROM sessions WHERE user_id = :id AND token != :t', { id: me.id, t: session.tokenHash });
+  // API tokens are made without the password: one left by whoever had the session must not outlive the change
+  run('DELETE FROM api_tokens WHERE user_id = :id', { id: me.id });
   return { ok: true };
 });
 
@@ -353,15 +355,18 @@ route('GET', '/api/bookmarks', ({ me, query }) => {
 // ---------------------------------------------------------------- posts
 
 // Validate a post request; images are saved here. Shared by POST /api/posts and the scheduler.
-export function preparePost(me, body, { allowReply = true } = {}) {
+// `stored`: the body is a scheduled post's saved payload, whose media was validated when it was scheduled.
+// From a request, savedImages / savedVideo are ignored: they would put any address into a post as its media.
+export function preparePost(me, body, { allowReply = true, stored = false } = {}) {
   const text = str(body.text, { name: 'Post', max: MAX_POST_LEN });
   const cw = str(body.cw, { name: 'Content warning', max: 100 });
-  const preSaved = Array.isArray(body.savedImages) ? body.savedImages : null; // scheduler: already stored
+  const preSaved = stored && Array.isArray(body.savedImages) ? body.savedImages : null; // scheduler: already stored
   const rawImages = preSaved || (Array.isArray(body.images) ? body.images : body.image ? [{ data: body.image, alt: '' }] : []);
   if (rawImages.length > MAX_IMAGES) fail(400, `You can attach up to ${MAX_IMAGES} images.`);
   const poll = body.poll ? parsePollInput(body.poll) : null;
   if (poll && rawImages.length) fail(400, 'A post can have images or a poll, not both.');
-  const wantsVideo = !!(body.video || body.savedVideo);
+  const savedVideo = stored ? body.savedVideo || null : null;
+  const wantsVideo = !!(body.video || savedVideo);
   if (wantsVideo && (rawImages.length || poll)) fail(400, 'A post can have a video, images or a poll, but only one of them.');
   const replyPolicy = body.replyPolicy ?? 'everyone';
   if (!REPLY_POLICIES.includes(replyPolicy)) fail(400, 'Unknown reply setting.');
@@ -385,7 +390,7 @@ export function preparePost(me, body, { allowReply = true } = {}) {
     src: saveImage(img?.data),
     alt: str(img?.alt, { name: 'Image description', max: 1000 }),
   }));
-  const video = prepareVideo(me, body.video, body.savedVideo || null);
+  const video = prepareVideo(me, body.video, savedVideo);
   return { text, cw, images, video, poll, replyPolicy, replyTo, quoteOf, sensitive: !!body.sensitive && (images.length > 0 || !!video) };
 }
 

@@ -15,7 +15,8 @@ export function badgesFor(userId) {
 
 const frame = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
-export function openStream(req, res, userId) {
+export function openStream(req, res, userId, { messages = true } = {}) {
+  res.withMessages = messages;
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -48,7 +49,11 @@ export function publish(userId, event, data) {
     if (!set) return;
     const payload = frame(event, typeof data === 'function' ? data() : data);
     const badges = frame('badges', badgesFor(userId));
-    for (const res of set) { res.write(payload); res.write(badges); }
+    for (const res of set) {
+      // a stream opened with an API token lacking the "messages" scope gets no message text
+      if (event !== 'message' || res.withMessages) res.write(payload);
+      res.write(badges);
+    }
   });
 }
 
